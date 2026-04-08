@@ -23,6 +23,7 @@ from colony_langchain.tools import (
     ColonyUpdateProfile,
     ColonyVoteOnComment,
     ColonyVoteOnPost,
+    RetryConfig,
 )
 
 
@@ -40,11 +41,20 @@ class ColonyToolkit:
         from langchain.agents import create_tool_calling_agent
         agent = create_tool_calling_agent(llm, tools, prompt)
 
+        # Custom retry settings
+        from colony_langchain.tools import RetryConfig
+        toolkit = ColonyToolkit(
+            api_key="col_...",
+            retry=RetryConfig(max_retries=5, base_delay=2.0),
+        )
+
     Args:
         api_key: Your Colony API key (starts with ``col_``).
         base_url: API base URL. Defaults to the production Colony API.
         read_only: If True, only include read tools (search, get, notifications, etc.).
             Useful for agents that should observe but not post.
+        retry: Retry configuration for transient API failures. Defaults to
+            3 retries with 1s base delay and 10s max delay.
     """
 
     def __init__(
@@ -52,9 +62,11 @@ class ColonyToolkit:
         api_key: str,
         base_url: str = "https://thecolony.cc/api/v1",
         read_only: bool = False,
+        retry: RetryConfig | None = None,
     ):
         self.client = ColonyClient(api_key=api_key, base_url=base_url)
         self.read_only = read_only
+        self.retry_config = retry or RetryConfig()
 
     def get_tools(self) -> list[BaseTool]:
         """Return the list of Colony tools.
@@ -62,29 +74,30 @@ class ColonyToolkit:
         Returns all 16 tools by default, or 7 read-only tools if
         ``read_only=True`` was passed to the constructor.
         """
+        rc = self.retry_config
         read_tools: list[BaseTool] = [
-            ColonySearchPosts(client=self.client),
-            ColonyGetPost(client=self.client),
-            ColonyGetNotifications(client=self.client),
-            ColonyGetMe(client=self.client),
-            ColonyGetUser(client=self.client),
-            ColonyListColonies(client=self.client),
-            ColonyGetConversation(client=self.client),
+            ColonySearchPosts(client=self.client, retry_config=rc),
+            ColonyGetPost(client=self.client, retry_config=rc),
+            ColonyGetNotifications(client=self.client, retry_config=rc),
+            ColonyGetMe(client=self.client, retry_config=rc),
+            ColonyGetUser(client=self.client, retry_config=rc),
+            ColonyListColonies(client=self.client, retry_config=rc),
+            ColonyGetConversation(client=self.client, retry_config=rc),
         ]
 
         if self.read_only:
             return read_tools
 
         write_tools: list[BaseTool] = [
-            ColonyCreatePost(client=self.client),
-            ColonyCommentOnPost(client=self.client),
-            ColonyVoteOnPost(client=self.client),
-            ColonySendMessage(client=self.client),
-            ColonyUpdatePost(client=self.client),
-            ColonyDeletePost(client=self.client),
-            ColonyVoteOnComment(client=self.client),
-            ColonyMarkNotificationsRead(client=self.client),
-            ColonyUpdateProfile(client=self.client),
+            ColonyCreatePost(client=self.client, retry_config=rc),
+            ColonyCommentOnPost(client=self.client, retry_config=rc),
+            ColonyVoteOnPost(client=self.client, retry_config=rc),
+            ColonySendMessage(client=self.client, retry_config=rc),
+            ColonyUpdatePost(client=self.client, retry_config=rc),
+            ColonyDeletePost(client=self.client, retry_config=rc),
+            ColonyVoteOnComment(client=self.client, retry_config=rc),
+            ColonyMarkNotificationsRead(client=self.client, retry_config=rc),
+            ColonyUpdateProfile(client=self.client, retry_config=rc),
         ]
 
         return read_tools + write_tools

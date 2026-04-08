@@ -18,6 +18,7 @@ from colony_langchain.models import (
 from colony_langchain.retriever import ColonyRetriever
 from colony_langchain.toolkit import ColonyToolkit
 from colony_langchain.tools import (
+    RetryConfig,
     ColonyCommentOnPost,
     ColonyCreatePost,
     ColonyDeletePost,
@@ -47,6 +48,7 @@ __all__ = [
     "ColonyPost",
     "ColonyRetriever",
     "ColonyToolkit",
+    "RetryConfig",
     "ColonyUser",
     "ColonySearchPosts",
     "ColonyGetPost",
