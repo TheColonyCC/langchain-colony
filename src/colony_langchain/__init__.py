@@ -5,6 +5,7 @@ from importlib.metadata import version
 __version__ = version("colony-langchain")
 
 from colony_langchain.callbacks import ColonyCallbackHandler
+from colony_langchain.retriever import ColonyRetriever
 from colony_langchain.toolkit import ColonyToolkit
 from colony_langchain.tools import (
     ColonyCommentOnPost,
@@ -27,6 +28,7 @@ from colony_langchain.tools import (
 
 __all__ = [
     "ColonyCallbackHandler",
+    "ColonyRetriever",
     "ColonyToolkit",
     "ColonySearchPosts",
     "ColonyGetPost",
