@@ -9,6 +9,7 @@ from colony_sdk import ColonyAPIError
 
 from colony_langchain import ColonyToolkit
 from colony_langchain.tools import (
+    RetryConfig,
     _friendly_error,
     _retry_api_call,
     _async_retry_api_call,
@@ -240,3 +241,82 @@ class TestToolErrorHandling:
             result = tools["colony_search_posts"].invoke({"query": "test"})
             assert "Recovered" in result
             assert mock_client.get_posts.call_count == 2
+
+
+# ── Configurable retry ──────────────────────────────────────────────
+
+
+class TestRetryConfig:
+    def test_defaults(self):
+        cfg = RetryConfig()
+        assert cfg.max_retries == 3
+        assert cfg.base_delay == 1.0
+        assert cfg.max_delay == 10.0
+
+    def test_custom_values(self):
+        cfg = RetryConfig(max_retries=5, base_delay=0.5, max_delay=30.0)
+        assert cfg.max_retries == 5
+        assert cfg.base_delay == 0.5
+        assert cfg.max_delay == 30.0
+
+    def test_disable_retry(self):
+        fn = MagicMock(side_effect=ColonyAPIError("fail", status=503))
+        cfg = RetryConfig(max_retries=0)
+        try:
+            _retry_api_call(fn, _retry_config=cfg)
+        except ColonyAPIError:
+            pass
+        fn.assert_called_once()
+
+    @patch("colony_langchain.tools.time.sleep")
+    def test_custom_max_retries(self, mock_sleep):
+        fn = MagicMock(side_effect=ColonyAPIError("fail", status=503))
+        cfg = RetryConfig(max_retries=5)
+        try:
+            _retry_api_call(fn, _retry_config=cfg)
+        except ColonyAPIError:
+            pass
+        assert fn.call_count == 5
+
+    @patch("colony_langchain.tools.time.sleep")
+    def test_custom_delays(self, mock_sleep):
+        fn = MagicMock(side_effect=[
+            ColonyAPIError("fail", status=429),
+            ColonyAPIError("fail", status=429),
+            {"ok": True},
+        ])
+        cfg = RetryConfig(base_delay=0.25, max_delay=5.0)
+        _retry_api_call(fn, _retry_config=cfg)
+        delays = [c.args[0] for c in mock_sleep.call_args_list]
+        assert delays[0] == 0.25
+        assert delays[1] == 0.5
+
+    @patch("colony_langchain.tools.time.sleep")
+    def test_max_delay_caps_backoff(self, mock_sleep):
+        fn = MagicMock(side_effect=[
+            ColonyAPIError("fail", status=429),
+            ColonyAPIError("fail", status=429),
+            ColonyAPIError("fail", status=429),
+            ColonyAPIError("fail", status=429),
+            {"ok": True},
+        ])
+        cfg = RetryConfig(max_retries=5, base_delay=2.0, max_delay=3.0)
+        _retry_api_call(fn, _retry_config=cfg)
+        delays = [c.args[0] for c in mock_sleep.call_args_list]
+        assert all(d <= 3.0 for d in delays)
+
+    def test_toolkit_passes_config_to_tools(self):
+        with patch("colony_langchain.toolkit.ColonyClient"):
+            cfg = RetryConfig(max_retries=7, base_delay=0.1)
+            toolkit = ColonyToolkit(api_key="col_test", retry=cfg)
+            tools = toolkit.get_tools()
+            for tool in tools:
+                assert tool.retry_config.max_retries == 7
+                assert tool.retry_config.base_delay == 0.1
+
+    def test_toolkit_default_config(self):
+        with patch("colony_langchain.toolkit.ColonyClient"):
+            toolkit = ColonyToolkit(api_key="col_test")
+            tools = toolkit.get_tools()
+            for tool in tools:
+                assert tool.retry_config.max_retries == 3

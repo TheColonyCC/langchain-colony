@@ -27,6 +27,35 @@ _BASE_DELAY = 1.0  # seconds
 _MAX_DELAY = 10.0  # seconds
 
 
+class RetryConfig(BaseModel):
+    """Configuration for retry behavior on transient API failures.
+
+    Usage::
+
+        from colony_langchain import ColonyToolkit
+        from colony_langchain.tools import RetryConfig
+
+        # More aggressive retry for flaky networks
+        toolkit = ColonyToolkit(
+            api_key="col_...",
+            retry=RetryConfig(max_retries=5, base_delay=2.0, max_delay=30.0),
+        )
+
+        # Disable retry entirely
+        toolkit = ColonyToolkit(api_key="col_...", retry=RetryConfig(max_retries=0))
+
+    Args:
+        max_retries: Maximum number of retry attempts. Set to 0 to disable retry.
+        base_delay: Initial delay in seconds before the first retry. Doubled on each
+            subsequent attempt (exponential backoff).
+        max_delay: Maximum delay in seconds between retries (caps the backoff).
+    """
+
+    max_retries: int = Field(default=_MAX_RETRIES, ge=0, description="Maximum retry attempts (0 to disable)")
+    base_delay: float = Field(default=_BASE_DELAY, gt=0, description="Initial delay in seconds")
+    max_delay: float = Field(default=_MAX_DELAY, gt=0, description="Maximum delay in seconds")
+
+
 def _friendly_error(err: ColonyAPIError) -> str:
     """Convert a ColonyAPIError into an agent-friendly message."""
     code = err.code or ""
@@ -48,44 +77,60 @@ def _friendly_error(err: ColonyAPIError) -> str:
     return f"Error: Colony API returned {status} — {err}."
 
 
-def _retry_api_call(fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+def _retry_api_call(
+    fn: Callable[..., T],
+    *args: Any,
+    _retry_config: RetryConfig | None = None,
+    **kwargs: Any,
+) -> T:
     """Call *fn* with retry on transient failures (429, 5xx, network errors)."""
+    cfg = _retry_config or RetryConfig()
+    if cfg.max_retries == 0:
+        return fn(*args, **kwargs)
     last_exc: BaseException | None = None
-    for attempt in range(_MAX_RETRIES):
+    for attempt in range(cfg.max_retries):
         try:
             return fn(*args, **kwargs)
         except ColonyAPIError as exc:
             last_exc = exc
             if exc.status not in _RETRYABLE_STATUSES:
                 raise
-            delay = min(_BASE_DELAY * (2 ** attempt), _MAX_DELAY)
-            logger.info("Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, _MAX_RETRIES, delay)
+            delay = min(cfg.base_delay * (2 ** attempt), cfg.max_delay)
+            logger.info("Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, cfg.max_retries, delay)
             time.sleep(delay)
         except (URLError, TimeoutError, ConnectionError, OSError) as exc:
             last_exc = exc
-            delay = min(_BASE_DELAY * (2 ** attempt), _MAX_DELAY)
-            logger.info("Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, _MAX_RETRIES, delay, exc)
+            delay = min(cfg.base_delay * (2 ** attempt), cfg.max_delay)
+            logger.info("Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, cfg.max_retries, delay, exc)
             time.sleep(delay)
     raise last_exc  # type: ignore[misc]
 
 
-async def _async_retry_api_call(fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+async def _async_retry_api_call(
+    fn: Callable[..., T],
+    *args: Any,
+    _retry_config: RetryConfig | None = None,
+    **kwargs: Any,
+) -> T:
     """Async version: runs *fn* in a thread with retry on transient failures."""
+    cfg = _retry_config or RetryConfig()
+    if cfg.max_retries == 0:
+        return await asyncio.to_thread(fn, *args, **kwargs)
     last_exc: BaseException | None = None
-    for attempt in range(_MAX_RETRIES):
+    for attempt in range(cfg.max_retries):
         try:
             return await asyncio.to_thread(fn, *args, **kwargs)
         except ColonyAPIError as exc:
             last_exc = exc
             if exc.status not in _RETRYABLE_STATUSES:
                 raise
-            delay = min(_BASE_DELAY * (2 ** attempt), _MAX_DELAY)
-            logger.info("Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, _MAX_RETRIES, delay)
+            delay = min(cfg.base_delay * (2 ** attempt), cfg.max_delay)
+            logger.info("Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, cfg.max_retries, delay)
             await asyncio.sleep(delay)
         except (URLError, TimeoutError, ConnectionError, OSError) as exc:
             last_exc = exc
-            delay = min(_BASE_DELAY * (2 ** attempt), _MAX_DELAY)
-            logger.info("Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, _MAX_RETRIES, delay, exc)
+            delay = min(cfg.base_delay * (2 ** attempt), cfg.max_delay)
+            logger.info("Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, cfg.max_retries, delay, exc)
             await asyncio.sleep(delay)
     raise last_exc  # type: ignore[misc]
 
@@ -178,6 +223,7 @@ class _ColonyBaseTool(BaseTool):
     model_config = {"arbitrary_types_allowed": True}
 
     client: Any = Field(exclude=True)
+    retry_config: RetryConfig = Field(default_factory=RetryConfig, exclude=True)
 
     # Default metadata for LangSmith tracing — overridden per tool
     metadata: dict[str, Any] = {"provider": "thecolony.cc"}
@@ -186,14 +232,14 @@ class _ColonyBaseTool(BaseTool):
     def _api(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """Call a Colony SDK method with retry and friendly error handling."""
         try:
-            return _retry_api_call(fn, *args, **kwargs)
+            return _retry_api_call(fn, *args, _retry_config=self.retry_config, **kwargs)
         except ColonyAPIError as exc:
             return _friendly_error(exc)  # type: ignore[return-value]
 
     async def _aapi(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """Async version of _api."""
         try:
-            return await _async_retry_api_call(fn, *args, **kwargs)
+            return await _async_retry_api_call(fn, *args, _retry_config=self.retry_config, **kwargs)
         except ColonyAPIError as exc:
             return _friendly_error(exc)  # type: ignore[return-value]
 
