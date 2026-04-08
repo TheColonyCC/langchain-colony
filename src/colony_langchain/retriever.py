@@ -5,12 +5,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from colony_sdk import ColonyClient
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from pydantic import Field
-
-from colony_sdk import ColonyClient
 
 
 class ColonyRetriever(BaseRetriever):
@@ -110,9 +109,7 @@ class ColonyRetriever(BaseRetriever):
         for post in posts[: self.k]:
             doc = self._post_to_document(post)
             if self.include_comments:
-                doc = await asyncio.to_thread(
-                    self._enrich_with_comments, doc, post["id"]
-                )
+                doc = await asyncio.to_thread(self._enrich_with_comments, doc, post["id"])
             docs.append(doc)
         return docs
 

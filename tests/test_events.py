@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from colony_langchain.events import ColonyEventPoller
 from colony_langchain.models import ColonyNotification
@@ -61,9 +61,7 @@ class TestPollerBasic:
 
     def test_poll_once_handles_dict_response(self):
         poller = _make_poller()
-        poller.client.get_notifications.return_value = {
-            "notifications": _sample_notifications(1)
-        }
+        poller.client.get_notifications.return_value = {"notifications": _sample_notifications(1)}
         results = poller.poll_once()
         assert len(results) == 1
 

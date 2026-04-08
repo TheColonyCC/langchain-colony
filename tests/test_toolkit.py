@@ -3,26 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from colony_langchain import ColonyToolkit
 from colony_langchain.tools import (
-    ColonyCommentOnPost,
-    ColonyCreatePost,
-    ColonyDeletePost,
-    ColonyGetConversation,
-    ColonyGetMe,
-    ColonyGetNotifications,
-    ColonyGetPost,
-    ColonyGetUser,
-    ColonyListColonies,
-    ColonyMarkNotificationsRead,
-    ColonySearchPosts,
-    ColonySendMessage,
-    ColonyUpdatePost,
-    ColonyUpdateProfile,
-    ColonyVoteOnComment,
-    ColonyVoteOnPost,
     _format_colonies,
     _format_conversation,
     _format_notifications,
@@ -103,11 +87,13 @@ class TestToolkit:
 
     def test_include_and_exclude_raises(self):
         toolkit = _make_toolkit()
+        raised = False
         try:
             toolkit.get_tools(include=["colony_get_post"], exclude=["colony_delete_post"])
-            assert False, "Should have raised ValueError"
         except ValueError as exc:
+            raised = True
             assert "Cannot specify both" in str(exc)
+        assert raised, "Should have raised ValueError"
 
     def test_include_with_read_only(self):
         toolkit = _make_toolkit(read_only=True)
@@ -160,9 +146,15 @@ class TestToolkit:
     def test_write_tools_tagged_write(self):
         toolkit = _make_toolkit()
         write_names = {
-            "colony_create_post", "colony_comment_on_post", "colony_vote_on_post",
-            "colony_vote_on_comment", "colony_send_message", "colony_update_post",
-            "colony_delete_post", "colony_mark_notifications_read", "colony_update_profile",
+            "colony_create_post",
+            "colony_comment_on_post",
+            "colony_vote_on_post",
+            "colony_vote_on_comment",
+            "colony_send_message",
+            "colony_update_post",
+            "colony_delete_post",
+            "colony_mark_notifications_read",
+            "colony_update_profile",
         }
         for tool in toolkit.get_tools():
             if tool.name in write_names:
@@ -190,19 +182,21 @@ class TestFormatPosts:
         assert _format_posts({}) == "No posts found."
 
     def test_single_post(self):
-        result = _format_posts({
-            "posts": [
-                {
-                    "id": "abc",
-                    "title": "Hello",
-                    "post_type": "discussion",
-                    "score": 5,
-                    "comment_count": 2,
-                    "author": {"username": "agent-x"},
-                    "colony": {"name": "general"},
-                }
-            ]
-        })
+        result = _format_posts(
+            {
+                "posts": [
+                    {
+                        "id": "abc",
+                        "title": "Hello",
+                        "post_type": "discussion",
+                        "score": 5,
+                        "comment_count": 2,
+                        "author": {"username": "agent-x"},
+                        "colony": {"name": "general"},
+                    }
+                ]
+            }
+        )
         assert "Hello" in result
         assert "agent-x" in result
         assert "general" in result
@@ -210,86 +204,113 @@ class TestFormatPosts:
         assert "score: 5" in result
 
     def test_multiple_posts(self):
-        result = _format_posts({
-            "posts": [
-                {"id": "1", "title": "First", "post_type": "finding", "score": 1, "comment_count": 0, "author": {"username": "a"}, "colony": {"name": "c1"}},
-                {"id": "2", "title": "Second", "post_type": "question", "score": 3, "comment_count": 1, "author": {"username": "b"}, "colony": {"name": "c2"}},
-            ]
-        })
+        result = _format_posts(
+            {
+                "posts": [
+                    {
+                        "id": "1",
+                        "title": "First",
+                        "post_type": "finding",
+                        "score": 1,
+                        "comment_count": 0,
+                        "author": {"username": "a"},
+                        "colony": {"name": "c1"},
+                    },
+                    {
+                        "id": "2",
+                        "title": "Second",
+                        "post_type": "question",
+                        "score": 3,
+                        "comment_count": 1,
+                        "author": {"username": "b"},
+                        "colony": {"name": "c2"},
+                    },
+                ]
+            }
+        )
         assert "First" in result
         assert "Second" in result
 
     def test_missing_fields_fallback(self):
-        result = _format_posts({
-            "posts": [{"id": "x", "title": "T", "post_type": "discussion"}]
-        })
+        result = _format_posts({"posts": [{"id": "x", "title": "T", "post_type": "discussion"}]})
         assert "?" in result  # missing author/colony fall back to ?
         assert "score: 0" in result  # missing score defaults to 0
 
 
 class TestFormatPost:
     def test_basic_post(self):
-        result = _format_post({
-            "title": "My Post",
-            "post_type": "analysis",
-            "score": 10,
-            "comment_count": 3,
-            "author": {"username": "researcher"},
-            "colony": {"name": "findings"},
-            "id": "post-1",
-            "body": "This is the body.",
-        })
+        result = _format_post(
+            {
+                "title": "My Post",
+                "post_type": "analysis",
+                "score": 10,
+                "comment_count": 3,
+                "author": {"username": "researcher"},
+                "colony": {"name": "findings"},
+                "id": "post-1",
+                "body": "This is the body.",
+            }
+        )
         assert "My Post" in result
         assert "analysis" in result
         assert "researcher" in result
         assert "This is the body." in result
 
     def test_nested_post_wrapper(self):
-        result = _format_post({
-            "post": {
-                "title": "Wrapped",
-                "post_type": "discussion",
-                "score": 0,
-                "comment_count": 0,
-                "author": {"username": "bot"},
-                "colony": {"name": "general"},
-                "id": "w-1",
-                "body": "wrapped body",
+        result = _format_post(
+            {
+                "post": {
+                    "title": "Wrapped",
+                    "post_type": "discussion",
+                    "score": 0,
+                    "comment_count": 0,
+                    "author": {"username": "bot"},
+                    "colony": {"name": "general"},
+                    "id": "w-1",
+                    "body": "wrapped body",
+                }
             }
-        })
+        )
         assert "Wrapped" in result
         assert "wrapped body" in result
 
     def test_with_comments(self):
-        result = _format_post({
-            "title": "Post",
-            "post_type": "discussion",
-            "score": 0,
-            "comment_count": 2,
-            "author": {"username": "op"},
-            "colony": {"name": "general"},
-            "id": "p-1",
-            "body": "",
-            "comments": [
-                {"author": {"username": "commenter1"}, "body": "Great post!"},
-                {"author": {"username": "commenter2"}, "body": "I disagree."},
-            ],
-        })
+        result = _format_post(
+            {
+                "title": "Post",
+                "post_type": "discussion",
+                "score": 0,
+                "comment_count": 2,
+                "author": {"username": "op"},
+                "colony": {"name": "general"},
+                "id": "p-1",
+                "body": "",
+                "comments": [
+                    {"author": {"username": "commenter1"}, "body": "Great post!"},
+                    {"author": {"username": "commenter2"}, "body": "I disagree."},
+                ],
+            }
+        )
         assert "Top comments:" in result
         assert "commenter1" in result
         assert "Great post!" in result
         assert "commenter2" in result
 
     def test_comments_truncated_to_ten(self):
-        comments = [
-            {"author": {"username": f"user{i}"}, "body": f"Comment {i}"}
-            for i in range(15)
-        ]
-        result = _format_post({
-            "title": "P", "post_type": "d", "score": 0, "comment_count": 15,
-            "author": {"username": "x"}, "colony": {"name": "y"}, "id": "z",
-            "body": "", "comments": comments,
-        })
+        comments = [{"author": {"username": f"user{i}"}, "body": f"Comment {i}"} for i in range(15)]
+        result = _format_post(
+            {
+                "title": "P",
+                "post_type": "d",
+                "score": 0,
+                "comment_count": 15,
+                "author": {"username": "x"},
+                "colony": {"name": "y"},
+                "id": "z",
+                "body": "",
+                "comments": comments,
+            }
+        )
         assert "user9" in result
         assert "user10" not in result
 
@@ -304,12 +325,14 @@ class TestFormatNotifications:
         assert _format_notifications({}) == "No notifications."
 
     def test_with_notifications(self):
-        result = _format_notifications({
-            "notifications": [
-                {"type": "reply", "actor": {"username": "agent-a"}, "preview": "Thanks for sharing"},
-                {"type": "mention", "actor": {"username": "agent-b"}, "body": "Check out @you"},
-            ]
-        })
+        result = _format_notifications(
+            {
+                "notifications": [
+                    {"type": "reply", "actor": {"username": "agent-a"}, "preview": "Thanks for sharing"},
+                    {"type": "mention", "actor": {"username": "agent-b"}, "body": "Check out @you"},
+                ]
+            }
+        )
         assert "[reply]" in result
         assert "agent-a" in result
         assert "Thanks for sharing" in result
@@ -317,11 +340,13 @@ class TestFormatNotifications:
         assert "Check out @you" in result
 
     def test_long_preview_truncated(self):
-        result = _format_notifications({
-            "notifications": [
-                {"type": "dm", "actor": {"username": "x"}, "preview": "A" * 200},
-            ]
-        })
+        result = _format_notifications(
+            {
+                "notifications": [
+                    {"type": "dm", "actor": {"username": "x"}, "preview": "A" * 200},
+                ]
+            }
+        )
         # preview is truncated to 100 chars
         assert len(result.split(": ", 1)[1]) == 100
 
@@ -477,12 +502,8 @@ class TestCreatePost:
             mock_client.create_post.return_value = {"id": "x"}
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
-            tools["colony_create_post"].invoke({
-                "title": "T", "body": "B", "colony": "crypto", "post_type": "finding"
-            })
-            mock_client.create_post.assert_called_once_with(
-                title="T", body="B", colony="crypto", post_type="finding"
-            )
+            tools["colony_create_post"].invoke({"title": "T", "body": "B", "colony": "crypto", "post_type": "finding"})
+            mock_client.create_post.assert_called_once_with(title="T", body="B", colony="crypto", post_type="finding")
 
     def test_async_returns_post_id(self):
         with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
@@ -512,9 +533,9 @@ class TestCommentOnPost:
             mock_client.create_comment.return_value = {"comment": {"id": "reply-2"}}
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_comment_on_post"].invoke({
-                "post_id": "p-1", "body": "Reply", "parent_id": "comment-1"
-            })
+            result = tools["colony_comment_on_post"].invoke(
+                {"post_id": "p-1", "body": "Reply", "parent_id": "comment-1"}
+            )
             assert "reply-2" in result
             mock_client.create_comment.assert_called_once_with(post_id="p-1", body="Reply", parent_id="comment-1")
 
@@ -625,15 +646,17 @@ class TestGetNotifications:
 
 class TestFormatUser:
     def test_basic_user(self):
-        result = _format_user({
-            "username": "agent-x",
-            "display_name": "Agent X",
-            "bio": "I research things",
-            "post_count": 10,
-            "comment_count": 25,
-            "score": 42,
-            "created_at": "2025-01-01",
-        })
+        result = _format_user(
+            {
+                "username": "agent-x",
+                "display_name": "Agent X",
+                "bio": "I research things",
+                "post_count": 10,
+                "comment_count": 25,
+                "score": 42,
+                "created_at": "2025-01-01",
+            }
+        )
         assert "agent-x" in result
         assert "Agent X" in result
         assert "I research things" in result
@@ -660,21 +683,21 @@ class TestFormatColonies:
         assert _format_colonies({}) == "No colonies found."
 
     def test_with_colonies(self):
-        result = _format_colonies({
-            "colonies": [
-                {"name": "general", "description": "General discussion", "post_count": 100},
-                {"name": "findings", "description": "Research findings", "post_count": 50},
-            ]
-        })
+        result = _format_colonies(
+            {
+                "colonies": [
+                    {"name": "general", "description": "General discussion", "post_count": 100},
+                    {"name": "findings", "description": "Research findings", "post_count": 50},
+                ]
+            }
+        )
         assert "general" in result
         assert "General discussion" in result
         assert "100 posts" in result
         assert "findings" in result
 
     def test_no_description(self):
-        result = _format_colonies({
-            "colonies": [{"name": "empty", "post_count": 0}]
-        })
+        result = _format_colonies({"colonies": [{"name": "empty", "post_count": 0}]})
         assert "empty" in result
         assert "0 posts" in result
 
@@ -685,20 +708,20 @@ class TestFormatConversation:
         assert _format_conversation({}) == "No messages in conversation."
 
     def test_with_messages(self):
-        result = _format_conversation({
-            "messages": [
-                {"sender": {"username": "alice"}, "body": "Hey there"},
-                {"sender": {"username": "bob"}, "body": "Hi!"},
-            ]
-        })
+        result = _format_conversation(
+            {
+                "messages": [
+                    {"sender": {"username": "alice"}, "body": "Hey there"},
+                    {"sender": {"username": "bob"}, "body": "Hi!"},
+                ]
+            }
+        )
         assert "alice" in result
         assert "Hey there" in result
         assert "bob" in result
 
     def test_fallback_from_field(self):
-        result = _format_conversation({
-            "messages": [{"from": "legacy-user", "body": "old format"}]
-        })
+        result = _format_conversation({"messages": [{"from": "legacy-user", "body": "old format"}]})
         assert "legacy-user" in result
 
 
