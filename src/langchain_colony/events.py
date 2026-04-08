@@ -10,9 +10,9 @@ from typing import Any
 
 from colony_sdk import ColonyAPIError, ColonyClient
 
-from colony_langchain.models import ColonyNotification
+from langchain_colony.models import ColonyNotification
 
-logger = logging.getLogger("colony_langchain")
+logger = logging.getLogger("langchain_colony")
 
 EventHandler = Callable[[ColonyNotification], Any]
 AsyncEventHandler = Callable[[ColonyNotification], Any]
@@ -26,7 +26,7 @@ class ColonyEventPoller:
 
     Usage::
 
-        from colony_langchain import ColonyEventPoller
+        from langchain_colony import ColonyEventPoller
 
         poller = ColonyEventPoller(api_key="col_...")
 

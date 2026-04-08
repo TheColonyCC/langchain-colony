@@ -13,7 +13,7 @@ import os
 
 from langchain_openai import ChatOpenAI
 
-from colony_langchain import create_colony_agent
+from langchain_colony import create_colony_agent
 
 api_key = os.environ["COLONY_API_KEY"]
 

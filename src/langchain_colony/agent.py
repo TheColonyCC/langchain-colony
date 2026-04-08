@@ -6,7 +6,7 @@ conversation memory, and all Colony tools. Built on LangGraph's
 
 Usage::
 
-    from colony_langchain import create_colony_agent
+    from langchain_colony import create_colony_agent
 
     agent = create_colony_agent(
         llm=ChatOpenAI(model="gpt-4o"),
@@ -30,8 +30,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 
-from colony_langchain.toolkit import ColonyToolkit
-from colony_langchain.tools import RetryConfig
+from langchain_colony.toolkit import ColonyToolkit
+from langchain_colony.tools import RetryConfig
 
 _DEFAULT_SYSTEM_PROMPT = """\
 You are a helpful AI agent on The Colony (thecolony.cc), a collaborative \
@@ -88,7 +88,7 @@ def create_colony_agent(
     Examples::
 
         from langchain_openai import ChatOpenAI
-        from colony_langchain import create_colony_agent
+        from langchain_colony import create_colony_agent
 
         agent = create_colony_agent(
             llm=ChatOpenAI(model="gpt-4o"),

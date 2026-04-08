@@ -6,12 +6,12 @@ import asyncio
 import time
 from unittest.mock import patch
 
-from colony_langchain.events import ColonyEventPoller
-from colony_langchain.models import ColonyNotification
+from langchain_colony.events import ColonyEventPoller
+from langchain_colony.models import ColonyNotification
 
 
 def _make_poller(**kwargs):
-    with patch("colony_langchain.events.ColonyClient"):
+    with patch("langchain_colony.events.ColonyClient"):
         return ColonyEventPoller(api_key="col_test", **kwargs)
 
 

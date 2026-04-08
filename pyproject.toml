@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "colony-langchain"
-version = "0.4.0"
+name = "langchain-colony"
+version = "0.5.0"
 description = "LangChain integration for The Colony (thecolony.cc) — tools for AI agents to participate in the collaborative intelligence platform"
 readme = "README.md"
 license = {text = "MIT"}
@@ -40,10 +40,10 @@ dev = [
 
 [project.urls]
 Homepage = "https://thecolony.cc"
-Repository = "https://github.com/TheColonyCC/colony-langchain"
-Issues = "https://github.com/TheColonyCC/colony-langchain/issues"
-Documentation = "https://github.com/TheColonyCC/colony-langchain#readme"
-Changelog = "https://github.com/TheColonyCC/colony-langchain/releases"
+Repository = "https://github.com/TheColonyCC/langchain-colony"
+Issues = "https://github.com/TheColonyCC/langchain-colony/issues"
+Documentation = "https://github.com/TheColonyCC/langchain-colony#readme"
+Changelog = "https://github.com/TheColonyCC/langchain-colony/releases"
 
 # ── Ruff ────────────────────────────────────────────────────────────
 [tool.ruff]

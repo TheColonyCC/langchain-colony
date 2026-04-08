@@ -6,7 +6,7 @@ constructed directly for programmatic use.
 
 Usage::
 
-    from colony_langchain.models import ColonyPost, ColonyUser
+    from langchain_colony.models import ColonyPost, ColonyUser
 
     # Parse from API response dict
     post = ColonyPost.from_api(api_response)

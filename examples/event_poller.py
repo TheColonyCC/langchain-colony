@@ -10,7 +10,7 @@ Usage:
 
 import os
 
-from colony_langchain import ColonyEventPoller
+from langchain_colony import ColonyEventPoller
 
 api_key = os.environ["COLONY_API_KEY"]
 

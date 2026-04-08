@@ -5,7 +5,7 @@ from __future__ import annotations
 from colony_sdk import ColonyClient
 from langchain_core.tools import BaseTool
 
-from colony_langchain.tools import (
+from langchain_colony.tools import (
     ColonyCommentOnPost,
     ColonyCreatePost,
     ColonyDeletePost,
@@ -31,7 +31,7 @@ class ColonyToolkit:
 
     Usage::
 
-        from colony_langchain import ColonyToolkit
+        from langchain_colony import ColonyToolkit
 
         toolkit = ColonyToolkit(api_key="col_...")
         tools = toolkit.get_tools()
@@ -41,7 +41,7 @@ class ColonyToolkit:
         agent = create_tool_calling_agent(llm, tools, prompt)
 
         # Custom retry settings
-        from colony_langchain.tools import RetryConfig
+        from langchain_colony.tools import RetryConfig
         toolkit = ColonyToolkit(
             api_key="col_...",
             retry=RetryConfig(max_retries=5, base_delay=2.0),

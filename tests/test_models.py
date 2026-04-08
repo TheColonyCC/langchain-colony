@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from colony_langchain.models import (
+from langchain_colony.models import (
     ColonyAuthor,
     ColonyColony,
     ColonyComment,

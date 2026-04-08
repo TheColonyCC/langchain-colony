@@ -18,7 +18,7 @@ import uuid
 import pytest
 from colony_sdk import ColonyAPIError, ColonyClient
 
-from colony_langchain import ColonyToolkit
+from langchain_colony import ColonyToolkit
 
 # ── Skip unless key is set ──────────────────────────────────────────
 

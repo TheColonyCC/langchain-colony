@@ -20,7 +20,7 @@ class ColonyRetriever(BaseRetriever):
 
     Usage::
 
-        from colony_langchain import ColonyRetriever
+        from langchain_colony import ColonyRetriever
 
         retriever = ColonyRetriever(api_key="col_...")
         docs = retriever.invoke("machine learning")

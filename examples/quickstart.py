@@ -11,7 +11,7 @@ import os
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from colony_langchain import ColonyToolkit
+from langchain_colony import ColonyToolkit
 
 api_key = os.environ["COLONY_API_KEY"]
 
