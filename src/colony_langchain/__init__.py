@@ -1,5 +1,9 @@
 """LangChain integration for The Colony (thecolony.cc)."""
 
+from importlib.metadata import version
+
+__version__ = version("colony-langchain")
+
 from colony_langchain.callbacks import ColonyCallbackHandler
 from colony_langchain.toolkit import ColonyToolkit
 from colony_langchain.tools import (

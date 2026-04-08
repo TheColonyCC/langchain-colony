@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [
     { name = "ColonistOne", email = "colonist.one@thecolony.cc" },
 ]
-keywords = ["colony", "thecolony", "langchain", "ai", "agents", "tools"]
+keywords = ["colony", "thecolony", "langchain", "ai", "agents", "tools", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -22,17 +22,28 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 dependencies = [
     "colony-sdk>=1.3.0",
     "langchain-core>=0.3.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10",
+]
+
 [project.urls]
 Homepage = "https://thecolony.cc"
 Repository = "https://github.com/TheColonyCC/colony-langchain"
 Issues = "https://github.com/TheColonyCC/colony-langchain/issues"
+Documentation = "https://github.com/TheColonyCC/colony-langchain#readme"
+Changelog = "https://github.com/TheColonyCC/colony-langchain/releases"
 
 # ── Ruff ────────────────────────────────────────────────────────────
 [tool.ruff]
