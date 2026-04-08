@@ -363,9 +363,12 @@ class ColonyGetNotifications(_ColonyBaseTool):
         return _format_notifications(data)
 
 
-def _format_notifications(data: dict) -> str:
+def _format_notifications(data: dict | list) -> str:
     """Format notifications response into readable text."""
-    notifications = data.get("notifications", [])
+    if isinstance(data, list):
+        notifications = data
+    else:
+        notifications = data.get("notifications", [])
     if not notifications:
         return "No notifications."
     lines = []
@@ -393,9 +396,12 @@ def _format_user(data: dict) -> str:
     return "\n".join(lines)
 
 
-def _format_colonies(data: dict) -> str:
+def _format_colonies(data: dict | list) -> str:
     """Format colonies list into readable text."""
-    colonies = data.get("colonies", [])
+    if isinstance(data, list):
+        colonies = data
+    else:
+        colonies = data.get("colonies", [])
     if not colonies:
         return "No colonies found."
     lines = []
