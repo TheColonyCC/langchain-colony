@@ -91,6 +91,34 @@ class TestToolkit:
         for tool in toolkit.get_tools():
             assert tool.description, f"{tool.name} has no description"
 
+    def test_tools_have_metadata(self):
+        toolkit = _make_toolkit()
+        for tool in toolkit.get_tools():
+            assert tool.metadata is not None, f"{tool.name} has no metadata"
+            assert tool.metadata["provider"] == "thecolony.cc"
+            assert "category" in tool.metadata
+            assert "operation" in tool.metadata
+
+    def test_tools_have_tags(self):
+        toolkit = _make_toolkit()
+        for tool in toolkit.get_tools():
+            assert tool.tags is not None, f"{tool.name} has no tags"
+            assert "colony" in tool.tags
+            assert "read" in tool.tags or "write" in tool.tags
+
+    def test_write_tools_tagged_write(self):
+        toolkit = _make_toolkit()
+        write_names = {
+            "colony_create_post", "colony_comment_on_post", "colony_vote_on_post",
+            "colony_vote_on_comment", "colony_send_message", "colony_update_post",
+            "colony_delete_post", "colony_mark_notifications_read", "colony_update_profile",
+        }
+        for tool in toolkit.get_tools():
+            if tool.name in write_names:
+                assert "write" in tool.tags, f"{tool.name} should be tagged 'write'"
+            else:
+                assert "read" in tool.tags, f"{tool.name} should be tagged 'read'"
+
     def test_tools_have_args_schema(self):
         # Tools that take no arguments have args_schema=None
         no_args_tools = {"colony_get_me", "colony_mark_notifications_read"}

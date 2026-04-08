@@ -179,6 +179,10 @@ class _ColonyBaseTool(BaseTool):
 
     client: Any = Field(exclude=True)
 
+    # Default metadata for LangSmith tracing — overridden per tool
+    metadata: dict[str, Any] = {"provider": "thecolony.cc"}
+    tags: list[str] = ["colony"]
+
     def _api(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """Call a Colony SDK method with retry and friendly error handling."""
         try:
@@ -204,6 +208,8 @@ class ColonySearchPosts(_ColonyBaseTool):
         "keyword, filter by colony (sub-forum), and sort by new/top/hot/discussed."
     )
     args_schema: type[BaseModel] = SearchPostsInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "posts", "operation": "search"}
+    tags: list[str] = ["colony", "read", "posts"]
 
     def _run(self, query: str, colony: str | None = None, sort: str = "hot", limit: int = 10) -> str:
         data = self._api(self.client.get_posts, search=query, colony=colony, sort=sort, limit=limit)
@@ -227,6 +233,8 @@ class ColonyGetPost(_ColonyBaseTool):
         "and comments. Use this after searching to read the full content of a post."
     )
     args_schema: type[BaseModel] = GetPostInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "posts", "operation": "get"}
+    tags: list[str] = ["colony", "read", "posts"]
 
     def _run(self, post_id: str) -> str:
         data = self._api(self.client.get_post, post_id)
@@ -251,6 +259,8 @@ class ColonyCreatePost(_ColonyBaseTool):
         "in the body. Choose an appropriate colony (sub-forum) for the topic."
     )
     args_schema: type[BaseModel] = CreatePostInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "posts", "operation": "create"}
+    tags: list[str] = ["colony", "write", "posts"]
 
     def _run(self, title: str, body: str, colony: str = "general", post_type: str = "discussion") -> str:
         data = self._api(self.client.create_post, title=title, body=body, colony=colony, post_type=post_type)
@@ -276,6 +286,8 @@ class ColonyCommentOnPost(_ColonyBaseTool):
         "specifying a parent comment ID. Use this to engage in discussions."
     )
     args_schema: type[BaseModel] = CommentOnPostInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "comments", "operation": "create"}
+    tags: list[str] = ["colony", "write", "comments"]
 
     def _run(self, post_id: str, body: str, parent_id: str | None = None) -> str:
         data = self._api(self.client.create_comment, post_id=post_id, body=body, parent_id=parent_id)
@@ -301,6 +313,8 @@ class ColonyVoteOnPost(_ColonyBaseTool):
         "interesting, or helpful content) and -1 for downvote."
     )
     args_schema: type[BaseModel] = VoteOnPostInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "votes", "operation": "vote"}
+    tags: list[str] = ["colony", "write", "votes"]
 
     def _run(self, post_id: str, value: int = 1) -> str:
         result = self._api(self.client.vote_post, post_id=post_id, value=value)
@@ -326,6 +340,8 @@ class ColonySendMessage(_ColonyBaseTool):
         "private communication with other AI agents or humans on the platform."
     )
     args_schema: type[BaseModel] = SendMessageInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "messages", "operation": "send"}
+    tags: list[str] = ["colony", "write", "messages"]
 
     def _run(self, username: str, body: str) -> str:
         result = self._api(self.client.send_message, username=username, body=body)
@@ -349,6 +365,8 @@ class ColonyGetNotifications(_ColonyBaseTool):
         "mentions, direct messages, and other activity."
     )
     args_schema: type[BaseModel] = GetNotificationsInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "notifications", "operation": "get"}
+    tags: list[str] = ["colony", "read", "notifications"]
 
     def _run(self, unread_only: bool = True) -> str:
         data = self._api(self.client.get_notifications, unread_only=unread_only)
@@ -472,6 +490,8 @@ class ColonyGetMe(_ColonyBaseTool):
         "display name, bio, and stats."
     )
     args_schema: type[BaseModel] | None = None
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "users", "operation": "get_self"}
+    tags: list[str] = ["colony", "read", "users"]
 
     def _run(self) -> str:
         data = self._api(self.client.get_me)
@@ -495,6 +515,8 @@ class ColonyGetUser(_ColonyBaseTool):
         "Returns their display name, bio, and activity stats."
     )
     args_schema: type[BaseModel] = GetUserInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "users", "operation": "get"}
+    tags: list[str] = ["colony", "read", "users"]
 
     def _run(self, user_id: str) -> str:
         data = self._api(self.client.get_user, user_id)
@@ -518,6 +540,8 @@ class ColonyListColonies(_ColonyBaseTool):
         "Use this to discover where to post or browse."
     )
     args_schema: type[BaseModel] = ListColoniesInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "colonies", "operation": "list"}
+    tags: list[str] = ["colony", "read", "colonies"]
 
     def _run(self, limit: int = 50) -> str:
         data = self._api(self.client.get_colonies, limit=limit)
@@ -541,6 +565,8 @@ class ColonyGetConversation(_ColonyBaseTool):
         "Use this to review past messages before replying."
     )
     args_schema: type[BaseModel] = GetConversationInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "messages", "operation": "get"}
+    tags: list[str] = ["colony", "read", "messages"]
 
     def _run(self, username: str) -> str:
         data = self._api(self.client.get_conversation, username)
@@ -564,6 +590,8 @@ class ColonyUpdatePost(_ColonyBaseTool):
         "Only fields you provide will be changed."
     )
     args_schema: type[BaseModel] = UpdatePostInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "posts", "operation": "update"}
+    tags: list[str] = ["colony", "write", "posts"]
 
     def _run(self, post_id: str, title: str | None = None, body: str | None = None) -> str:
         result = self._api(self.client.update_post, post_id=post_id, title=title, body=body)
@@ -587,6 +615,8 @@ class ColonyDeletePost(_ColonyBaseTool):
         "This cannot be undone."
     )
     args_schema: type[BaseModel] = DeletePostInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "posts", "operation": "delete"}
+    tags: list[str] = ["colony", "write", "posts"]
 
     def _run(self, post_id: str) -> str:
         result = self._api(self.client.delete_post, post_id=post_id)
@@ -610,6 +640,8 @@ class ColonyVoteOnComment(_ColonyBaseTool):
         "and -1 for downvote."
     )
     args_schema: type[BaseModel] = VoteOnCommentInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "votes", "operation": "vote"}
+    tags: list[str] = ["colony", "write", "votes"]
 
     def _run(self, comment_id: str, value: int = 1) -> str:
         result = self._api(self.client.vote_comment, comment_id=comment_id, value=value)
@@ -635,6 +667,8 @@ class ColonyMarkNotificationsRead(_ColonyBaseTool):
         "Use this after reviewing notifications."
     )
     args_schema: type[BaseModel] | None = None
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "notifications", "operation": "mark_read"}
+    tags: list[str] = ["colony", "write", "notifications"]
 
     def _run(self) -> str:
         result = self._api(self.client.mark_notifications_read)
@@ -658,6 +692,8 @@ class ColonyUpdateProfile(_ColonyBaseTool):
         "display name and bio."
     )
     args_schema: type[BaseModel] = UpdateProfileInput
+    metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "users", "operation": "update_profile"}
+    tags: list[str] = ["colony", "write", "users"]
 
     def _run(self, display_name: str | None = None, bio: str | None = None) -> str:
         fields = {}

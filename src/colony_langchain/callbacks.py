@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -22,13 +23,61 @@ _WRITE_TOOLS = frozenset({
     "colony_update_profile",
 })
 
+# Regex patterns for extracting IDs from tool outputs
+_POST_ID_RE = re.compile(r"(?:Post created|Post updated|Post deleted|Upvoted post|Downvoted post):?\s*([0-9a-f-]{36})")
+_COMMENT_ID_RE = re.compile(r"Comment posted:?\s*([0-9a-f-]{36})")
+
+
+def _extract_metadata(tool_name: str, inputs: dict[str, Any], output: str | None) -> dict[str, Any]:
+    """Extract structured metadata from tool inputs and outputs.
+
+    Returns a dict of metadata fields suitable for LangSmith tracing.
+    """
+    meta: dict[str, Any] = {}
+
+    # Extract from inputs
+    if "post_id" in inputs:
+        meta["colony.post_id"] = inputs["post_id"]
+    if "comment_id" in inputs:
+        meta["colony.comment_id"] = inputs["comment_id"]
+    if "username" in inputs:
+        meta["colony.username"] = inputs["username"]
+    if "user_id" in inputs:
+        meta["colony.user_id"] = inputs["user_id"]
+    if "colony" in inputs and inputs["colony"]:
+        meta["colony.colony"] = inputs["colony"]
+    if "query" in inputs:
+        meta["colony.query"] = inputs["query"]
+    if "post_type" in inputs and inputs["post_type"]:
+        meta["colony.post_type"] = inputs["post_type"]
+    if "title" in inputs:
+        meta["colony.title"] = inputs["title"]
+
+    # Extract IDs from outputs
+    if output:
+        post_match = _POST_ID_RE.search(output)
+        if post_match:
+            meta["colony.post_id"] = post_match.group(1)
+        comment_match = _COMMENT_ID_RE.search(output)
+        if comment_match:
+            meta["colony.comment_id"] = comment_match.group(1)
+        if output.startswith("Error"):
+            meta["colony.error"] = True
+
+    return meta
+
 
 class ColonyCallbackHandler(BaseCallbackHandler):
     """LangChain callback handler that logs Colony tool activity.
 
-    Tracks all Colony tool invocations and provides a summary of actions taken.
-    Useful for auditing agent behavior, debugging, and integration with
-    monitoring systems.
+    Tracks all Colony tool invocations with structured metadata for
+    LangSmith tracing, auditing, and debugging.
+
+    In LangSmith, Colony tool runs will show:
+    - **Tags**: ``colony``, ``read``/``write``, category (``posts``, ``comments``, etc.)
+    - **Metadata**: ``provider``, ``category``, ``operation`` on every run
+    - **Extracted metadata**: ``colony.post_id``, ``colony.username``, ``colony.query``,
+      etc. extracted from inputs and outputs
 
     Usage::
 
@@ -41,7 +90,7 @@ class ColonyCallbackHandler(BaseCallbackHandler):
 
         # After run, inspect activity
         print(handler.summary())
-        print(handler.actions)  # list of dicts
+        print(handler.actions)  # list of dicts with structured metadata
 
     Args:
         log_level: Logging level for automatic log output. Set to ``None``
@@ -73,6 +122,7 @@ class ColonyCallbackHandler(BaseCallbackHandler):
             "tool": name,
             "inputs": inputs or {},
             "is_write": name in _WRITE_TOOLS,
+            "metadata": _extract_metadata(name, inputs or {}, None),
         }
         self._pending[str(run_id)] = action
 
@@ -94,6 +144,10 @@ class ColonyCallbackHandler(BaseCallbackHandler):
 
         action["output"] = output
         action["error"] = None
+        # Enrich metadata with output-derived fields
+        action["metadata"].update(
+            _extract_metadata(action["tool"], action["inputs"], output)
+        )
         self.actions.append(action)
 
         if self.log_level is not None:
@@ -113,6 +167,7 @@ class ColonyCallbackHandler(BaseCallbackHandler):
 
         action["output"] = None
         action["error"] = str(error)
+        action["metadata"]["colony.error"] = True
         self.actions.append(action)
 
         if self.log_level is not None:
