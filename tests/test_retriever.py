@@ -7,11 +7,11 @@ from unittest.mock import patch
 
 from langchain_core.documents import Document
 
-from colony_langchain.retriever import ColonyRetriever
+from langchain_colony.retriever import ColonyRetriever
 
 
 def _make_retriever(**kwargs):
-    with patch("colony_langchain.retriever.ColonyClient"):
+    with patch("langchain_colony.retriever.ColonyClient"):
         return ColonyRetriever(api_key="col_test", **kwargs)
 
 

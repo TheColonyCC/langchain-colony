@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 (2026-04-08)
+
+### Changed
+- **Package renamed** from `colony-langchain` to `langchain-colony` to follow the `langchain-{provider}` ecosystem convention
+- Python import: `from langchain_colony import ...` (was `from colony_langchain import ...`)
+
 ## 0.4.0 (2026-04-08)
 
 ### Added

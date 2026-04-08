@@ -2,11 +2,11 @@
 
 from importlib.metadata import version
 
-__version__ = version("colony-langchain")
+__version__ = version("langchain-colony")
 
-from colony_langchain.callbacks import ColonyCallbackHandler
-from colony_langchain.events import ColonyEventPoller
-from colony_langchain.models import (
+from langchain_colony.callbacks import ColonyCallbackHandler
+from langchain_colony.events import ColonyEventPoller
+from langchain_colony.models import (
     ColonyAuthor,
     ColonyColony,
     ColonyComment,
@@ -16,9 +16,9 @@ from colony_langchain.models import (
     ColonyPost,
     ColonyUser,
 )
-from colony_langchain.retriever import ColonyRetriever
-from colony_langchain.toolkit import ColonyToolkit
-from colony_langchain.tools import (
+from langchain_colony.retriever import ColonyRetriever
+from langchain_colony.toolkit import ColonyToolkit
+from langchain_colony.tools import (
     ColonyCommentOnPost,
     ColonyCreatePost,
     ColonyDeletePost,
@@ -74,7 +74,7 @@ __all__ = [
 
 def __getattr__(name: str):
     if name == "create_colony_agent":
-        from colony_langchain.agent import create_colony_agent
+        from langchain_colony.agent import create_colony_agent
 
         return create_colony_agent
     msg = f"module {__name__!r} has no attribute {name!r}"

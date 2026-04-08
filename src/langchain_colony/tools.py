@@ -13,7 +13,7 @@ from colony_sdk import ColonyAPIError
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger("colony_langchain")
+logger = logging.getLogger("langchain_colony")
 
 T = TypeVar("T")
 
@@ -31,8 +31,8 @@ class RetryConfig(BaseModel):
 
     Usage::
 
-        from colony_langchain import ColonyToolkit
-        from colony_langchain.tools import RetryConfig
+        from langchain_colony import ColonyToolkit
+        from langchain_colony.tools import RetryConfig
 
         # More aggressive retry for flaky networks
         toolkit = ColonyToolkit(

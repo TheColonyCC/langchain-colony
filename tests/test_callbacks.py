@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from colony_langchain.callbacks import ColonyCallbackHandler, _extract_metadata
+from langchain_colony.callbacks import ColonyCallbackHandler, _extract_metadata
 
 
 def _run_id() -> str:

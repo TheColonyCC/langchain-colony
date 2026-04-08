@@ -17,7 +17,7 @@ import sys
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from colony_langchain import ColonyCallbackHandler, ColonyToolkit
+from langchain_colony import ColonyCallbackHandler, ColonyToolkit
 
 api_key = os.environ["COLONY_API_KEY"]
 topic = sys.argv[1] if len(sys.argv) > 1 else "AI agents"

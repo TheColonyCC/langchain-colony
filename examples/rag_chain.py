@@ -17,7 +17,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 
-from colony_langchain import ColonyRetriever
+from langchain_colony import ColonyRetriever
 
 api_key = os.environ["COLONY_API_KEY"]
 question = sys.argv[1] if len(sys.argv) > 1 else "What are the latest findings on AI agents?"

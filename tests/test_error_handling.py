@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from colony_sdk import ColonyAPIError
 
-from colony_langchain import ColonyToolkit
-from colony_langchain.tools import (
+from langchain_colony import ColonyToolkit
+from langchain_colony.tools import (
     _MAX_RETRIES,
     RetryConfig,
     _async_retry_api_call,
@@ -77,7 +77,7 @@ class TestRetryApiCall:
         assert result == {"ok": True}
         fn.assert_called_once_with("arg1", key="val")
 
-    @patch("colony_langchain.tools.time.sleep")
+    @patch("langchain_colony.tools.time.sleep")
     def test_retries_on_429(self, mock_sleep):
         fn = MagicMock(
             side_effect=[
@@ -90,7 +90,7 @@ class TestRetryApiCall:
         assert fn.call_count == 2
         mock_sleep.assert_called_once()
 
-    @patch("colony_langchain.tools.time.sleep")
+    @patch("langchain_colony.tools.time.sleep")
     def test_retries_on_500(self, mock_sleep):
         fn = MagicMock(
             side_effect=[
@@ -104,7 +104,7 @@ class TestRetryApiCall:
         assert fn.call_count == 3
         assert mock_sleep.call_count == 2
 
-    @patch("colony_langchain.tools.time.sleep")
+    @patch("langchain_colony.tools.time.sleep")
     def test_retries_on_network_error(self, mock_sleep):
         fn = MagicMock(
             side_effect=[
@@ -124,7 +124,7 @@ class TestRetryApiCall:
             assert exc.status == 404
         fn.assert_called_once()
 
-    @patch("colony_langchain.tools.time.sleep")
+    @patch("langchain_colony.tools.time.sleep")
     def test_raises_after_max_retries(self, mock_sleep):
         fn = MagicMock(side_effect=ColonyAPIError("overloaded", status=503))
         try:
@@ -133,7 +133,7 @@ class TestRetryApiCall:
             assert exc.status == 503
         assert fn.call_count == _MAX_RETRIES
 
-    @patch("colony_langchain.tools.time.sleep")
+    @patch("langchain_colony.tools.time.sleep")
     def test_exponential_backoff(self, mock_sleep):
         fn = MagicMock(
             side_effect=[
@@ -159,7 +159,7 @@ class TestAsyncRetryApiCall:
             return {"ok": True}
 
         async def run():
-            with patch("colony_langchain.tools.asyncio.sleep", new_callable=AsyncMock):
+            with patch("langchain_colony.tools.asyncio.sleep", new_callable=AsyncMock):
                 return await _async_retry_api_call(fn)
 
         result = asyncio.run(run())
@@ -180,7 +180,7 @@ class TestAsyncRetryApiCall:
 
 class TestToolErrorHandling:
     def test_search_returns_friendly_error(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_posts.side_effect = ColonyAPIError("bad token", status=401, code="AUTH_INVALID_TOKEN")
             toolkit = ColonyToolkit(api_key="col_test")
@@ -190,7 +190,7 @@ class TestToolErrorHandling:
             assert "Error" in result
 
     def test_create_post_returns_friendly_error(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.create_post.side_effect = ColonyAPIError("title too short", status=422, code="VALIDATION_ERROR")
             toolkit = ColonyToolkit(api_key="col_test")
@@ -199,7 +199,7 @@ class TestToolErrorHandling:
             assert "invalid input" in result
 
     def test_get_post_not_found(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_post.side_effect = ColonyAPIError("gone", status=404)
             toolkit = ColonyToolkit(api_key="col_test")
@@ -208,18 +208,18 @@ class TestToolErrorHandling:
             assert "not found" in result
 
     def test_vote_rate_limited(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.vote_post.side_effect = ColonyAPIError("too fast", status=429, code="RATE_LIMIT_VOTE_HOURLY")
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
             # Rate limit will be retried and then return friendly error
-            with patch("colony_langchain.tools.time.sleep"):
+            with patch("langchain_colony.tools.time.sleep"):
                 result = tools["colony_vote_on_post"].invoke({"post_id": "p-1", "value": 1})
             assert "rate limited" in result
 
     def test_delete_forbidden(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.delete_post.side_effect = ColonyAPIError("not yours", status=403, code="FORBIDDEN")
             toolkit = ColonyToolkit(api_key="col_test")
@@ -228,7 +228,7 @@ class TestToolErrorHandling:
             assert "permission" in result
 
     def test_async_error_handling(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_me.side_effect = ColonyAPIError("expired", status=401, code="AUTH_TOKEN_EXPIRED")
             toolkit = ColonyToolkit(api_key="col_test")
@@ -236,9 +236,9 @@ class TestToolErrorHandling:
             result = asyncio.run(tools["colony_get_me"].ainvoke({}))
             assert "authentication failed" in result
 
-    @patch("colony_langchain.tools.time.sleep")
+    @patch("langchain_colony.tools.time.sleep")
     def test_retry_then_succeed(self, mock_sleep):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_posts.side_effect = [
                 ColonyAPIError("overloaded", status=503),
@@ -286,7 +286,7 @@ class TestRetryConfig:
             _retry_api_call(fn, _retry_config=cfg)
         fn.assert_called_once()
 
-    @patch("colony_langchain.tools.time.sleep")
+    @patch("langchain_colony.tools.time.sleep")
     def test_custom_max_retries(self, mock_sleep):
         fn = MagicMock(side_effect=ColonyAPIError("fail", status=503))
         cfg = RetryConfig(max_retries=5)
@@ -294,7 +294,7 @@ class TestRetryConfig:
             _retry_api_call(fn, _retry_config=cfg)
         assert fn.call_count == 5
 
-    @patch("colony_langchain.tools.time.sleep")
+    @patch("langchain_colony.tools.time.sleep")
     def test_custom_delays(self, mock_sleep):
         fn = MagicMock(
             side_effect=[
@@ -309,7 +309,7 @@ class TestRetryConfig:
         assert delays[0] == 0.25
         assert delays[1] == 0.5
 
-    @patch("colony_langchain.tools.time.sleep")
+    @patch("langchain_colony.tools.time.sleep")
     def test_max_delay_caps_backoff(self, mock_sleep):
         fn = MagicMock(
             side_effect=[
@@ -326,7 +326,7 @@ class TestRetryConfig:
         assert all(d <= 3.0 for d in delays)
 
     def test_toolkit_passes_config_to_tools(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             cfg = RetryConfig(max_retries=7, base_delay=0.1)
             toolkit = ColonyToolkit(api_key="col_test", retry=cfg)
             tools = toolkit.get_tools()
@@ -335,7 +335,7 @@ class TestRetryConfig:
                 assert tool.retry_config.base_delay == 0.1
 
     def test_toolkit_default_config(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             toolkit = ColonyToolkit(api_key="col_test")
             tools = toolkit.get_tools()
             for tool in tools:

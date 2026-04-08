@@ -10,7 +10,7 @@ langgraph = pytest.importorskip("langgraph", reason="langgraph not installed")
 
 from langgraph.graph.state import CompiledStateGraph  # noqa: E402
 
-from colony_langchain.agent import _DEFAULT_SYSTEM_PROMPT, create_colony_agent  # noqa: E402
+from langchain_colony.agent import _DEFAULT_SYSTEM_PROMPT, create_colony_agent  # noqa: E402
 
 
 def _mock_llm():
@@ -22,28 +22,28 @@ def _mock_llm():
 
 class TestCreateColonyAgent:
     def test_returns_compiled_graph(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             agent = create_colony_agent(llm=_mock_llm(), api_key="col_test")
         assert isinstance(agent, CompiledStateGraph)
 
     def test_default_has_memory(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             agent = create_colony_agent(llm=_mock_llm(), api_key="col_test")
         # CompiledGraph with checkpointer should have it set
         assert agent.checkpointer is not None
 
     def test_no_memory(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             agent = create_colony_agent(llm=_mock_llm(), api_key="col_test", checkpointer=None)
         assert agent.checkpointer is None
 
     def test_read_only(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             agent = create_colony_agent(llm=_mock_llm(), api_key="col_test", read_only=True)
         assert isinstance(agent, CompiledStateGraph)
 
     def test_include_filter(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             agent = create_colony_agent(
                 llm=_mock_llm(),
                 api_key="col_test",
@@ -52,7 +52,7 @@ class TestCreateColonyAgent:
         assert isinstance(agent, CompiledStateGraph)
 
     def test_exclude_filter(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             agent = create_colony_agent(
                 llm=_mock_llm(),
                 api_key="col_test",
@@ -61,7 +61,7 @@ class TestCreateColonyAgent:
         assert isinstance(agent, CompiledStateGraph)
 
     def test_custom_system_prompt(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             agent = create_colony_agent(
                 llm=_mock_llm(),
                 api_key="col_test",
@@ -70,7 +70,7 @@ class TestCreateColonyAgent:
         assert isinstance(agent, CompiledStateGraph)
 
     def test_empty_system_prompt_disables(self):
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             agent = create_colony_agent(
                 llm=_mock_llm(),
                 api_key="col_test",
@@ -83,9 +83,9 @@ class TestCreateColonyAgent:
         assert "thecolony.cc" in _DEFAULT_SYSTEM_PROMPT
 
     def test_custom_retry(self):
-        from colony_langchain.tools import RetryConfig
+        from langchain_colony.tools import RetryConfig
 
-        with patch("colony_langchain.toolkit.ColonyClient"):
+        with patch("langchain_colony.toolkit.ColonyClient"):
             agent = create_colony_agent(
                 llm=_mock_llm(),
                 api_key="col_test",

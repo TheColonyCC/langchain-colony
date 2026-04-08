@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import patch
 
-from colony_langchain import ColonyToolkit
-from colony_langchain.tools import (
+from langchain_colony import ColonyToolkit
+from langchain_colony.tools import (
     _format_colonies,
     _format_conversation,
     _format_notifications,
@@ -17,12 +17,12 @@ from colony_langchain.tools import (
 
 
 def _make_toolkit(**kwargs):
-    with patch("colony_langchain.toolkit.ColonyClient"):
+    with patch("langchain_colony.toolkit.ColonyClient"):
         return ColonyToolkit(api_key="col_test", **kwargs)
 
 
 def _tools_by_name():
-    with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+    with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
         toolkit = ColonyToolkit(api_key="col_test")
         return {t.name: t for t in toolkit.get_tools()}, MockClient.return_value
 
@@ -356,7 +356,7 @@ class TestFormatNotifications:
 
 class TestSearchPosts:
     def test_formats_results(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_posts.return_value = {
                 "posts": [
@@ -380,7 +380,7 @@ class TestSearchPosts:
             assert "test-agent" in result
 
     def test_no_results(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_posts.return_value = {"posts": []}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -389,7 +389,7 @@ class TestSearchPosts:
             assert "No posts found" in result
 
     def test_passes_all_params(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_posts.return_value = {"posts": []}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -398,7 +398,7 @@ class TestSearchPosts:
             mock_client.get_posts.assert_called_once_with(search="ai", colony="findings", sort="top", limit=5)
 
     def test_async_formats_results(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_posts.return_value = {
                 "posts": [
@@ -422,7 +422,7 @@ class TestSearchPosts:
 
 class TestGetPost:
     def test_returns_formatted_post(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_post.return_value = {
                 "post": {
@@ -448,7 +448,7 @@ class TestGetPost:
             assert "Very insightful!" in result
 
     def test_async_returns_formatted_post(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_post.return_value = {
                 "title": "Simple",
@@ -469,7 +469,7 @@ class TestGetPost:
 
 class TestCreatePost:
     def test_returns_post_id(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.create_post.return_value = {"id": "new-post-123"}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -479,7 +479,7 @@ class TestCreatePost:
             assert "new-post-123" in result
 
     def test_nested_post_id(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.create_post.return_value = {"post": {"id": "nested-789"}}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -488,7 +488,7 @@ class TestCreatePost:
             assert "nested-789" in result
 
     def test_unknown_id_fallback(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.create_post.return_value = {"status": "ok"}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -497,7 +497,7 @@ class TestCreatePost:
             assert "unknown" in result
 
     def test_passes_all_params(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.create_post.return_value = {"id": "x"}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -506,7 +506,7 @@ class TestCreatePost:
             mock_client.create_post.assert_called_once_with(title="T", body="B", colony="crypto", post_type="finding")
 
     def test_async_returns_post_id(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.create_post.return_value = {"id": "async-post-456"}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -518,7 +518,7 @@ class TestCreatePost:
 
 class TestCommentOnPost:
     def test_returns_comment_id(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.create_comment.return_value = {"id": "comment-1"}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -528,7 +528,7 @@ class TestCommentOnPost:
             mock_client.create_comment.assert_called_once_with(post_id="p-1", body="Nice!", parent_id=None)
 
     def test_threaded_reply(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.create_comment.return_value = {"comment": {"id": "reply-2"}}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -540,7 +540,7 @@ class TestCommentOnPost:
             mock_client.create_comment.assert_called_once_with(post_id="p-1", body="Reply", parent_id="comment-1")
 
     def test_async_returns_comment_id(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.create_comment.return_value = {"id": "async-c"}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -551,7 +551,7 @@ class TestCommentOnPost:
 
 class TestVoteOnPost:
     def test_upvote(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.vote_post.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -561,7 +561,7 @@ class TestVoteOnPost:
             assert "Upvoted" in result
 
     def test_downvote(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.vote_post.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -571,7 +571,7 @@ class TestVoteOnPost:
             assert "Downvoted" in result
 
     def test_async_upvote(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.vote_post.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -583,7 +583,7 @@ class TestVoteOnPost:
 
 class TestSendMessage:
     def test_sends_message(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.send_message.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -593,7 +593,7 @@ class TestSendMessage:
             mock_client.send_message.assert_called_once_with(username="agent-b", body="Hello!")
 
     def test_async_sends_message(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.send_message.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -604,7 +604,7 @@ class TestSendMessage:
 
 class TestGetNotifications:
     def test_no_notifications(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_notifications.return_value = {"notifications": []}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -614,7 +614,7 @@ class TestGetNotifications:
             assert "No notifications" in result
 
     def test_with_notifications(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_notifications.return_value = {
                 "notifications": [
@@ -631,7 +631,7 @@ class TestGetNotifications:
             mock_client.get_notifications.assert_called_once_with(unread_only=False)
 
     def test_async_no_notifications(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_notifications.return_value = {"notifications": []}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -730,7 +730,7 @@ class TestFormatConversation:
 
 class TestGetMe:
     def test_returns_profile(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_me.return_value = {
                 "username": "my-agent",
@@ -747,7 +747,7 @@ class TestGetMe:
             assert "I do things" in result
 
     def test_async_returns_profile(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_me.return_value = {"username": "async-me"}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -758,7 +758,7 @@ class TestGetMe:
 
 class TestGetUser:
     def test_returns_user(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_user.return_value = {
                 "user": {"username": "other-agent", "display_name": "Other", "bio": "Explorer"}
@@ -771,7 +771,7 @@ class TestGetUser:
             mock_client.get_user.assert_called_once_with("other-agent")
 
     def test_async_returns_user(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_user.return_value = {"username": "u2"}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -782,7 +782,7 @@ class TestGetUser:
 
 class TestListColonies:
     def test_returns_colonies(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_colonies.return_value = {
                 "colonies": [
@@ -797,7 +797,7 @@ class TestListColonies:
             mock_client.get_colonies.assert_called_once_with(limit=50)
 
     def test_async_returns_colonies(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_colonies.return_value = {"colonies": []}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -808,7 +808,7 @@ class TestListColonies:
 
 class TestGetConversation:
     def test_returns_messages(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_conversation.return_value = {
                 "messages": [
@@ -824,7 +824,7 @@ class TestGetConversation:
             mock_client.get_conversation.assert_called_once_with("them")
 
     def test_async_empty_conversation(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.get_conversation.return_value = {"messages": []}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -835,7 +835,7 @@ class TestGetConversation:
 
 class TestUpdatePost:
     def test_updates_post(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.update_post.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -846,7 +846,7 @@ class TestUpdatePost:
             mock_client.update_post.assert_called_once_with(post_id="p-1", title="New Title", body=None)
 
     def test_async_updates_post(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.update_post.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -857,7 +857,7 @@ class TestUpdatePost:
 
 class TestDeletePost:
     def test_deletes_post(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.delete_post.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -868,7 +868,7 @@ class TestDeletePost:
             mock_client.delete_post.assert_called_once_with(post_id="p-1")
 
     def test_async_deletes_post(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.delete_post.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -879,7 +879,7 @@ class TestDeletePost:
 
 class TestVoteOnComment:
     def test_upvote(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.vote_comment.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -890,7 +890,7 @@ class TestVoteOnComment:
             mock_client.vote_comment.assert_called_once_with(comment_id="c-1", value=1)
 
     def test_downvote(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.vote_comment.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -899,7 +899,7 @@ class TestVoteOnComment:
             assert "Downvoted" in result
 
     def test_async_upvote(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.vote_comment.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -910,7 +910,7 @@ class TestVoteOnComment:
 
 class TestMarkNotificationsRead:
     def test_marks_read(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.mark_notifications_read.return_value = None
             toolkit = ColonyToolkit(api_key="col_test")
@@ -920,7 +920,7 @@ class TestMarkNotificationsRead:
             mock_client.mark_notifications_read.assert_called_once()
 
     def test_async_marks_read(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.mark_notifications_read.return_value = None
             toolkit = ColonyToolkit(api_key="col_test")
@@ -931,7 +931,7 @@ class TestMarkNotificationsRead:
 
 class TestUpdateProfile:
     def test_updates_display_name(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.update_profile.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -942,7 +942,7 @@ class TestUpdateProfile:
             mock_client.update_profile.assert_called_once_with(display_name="New Name")
 
     def test_updates_both_fields(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.update_profile.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")
@@ -952,7 +952,7 @@ class TestUpdateProfile:
             assert "bio" in result
 
     def test_no_fields_provided(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
@@ -961,7 +961,7 @@ class TestUpdateProfile:
             mock_client.update_profile.assert_not_called()
 
     def test_async_updates_profile(self):
-        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
             mock_client.update_profile.return_value = {}
             toolkit = ColonyToolkit(api_key="col_test")

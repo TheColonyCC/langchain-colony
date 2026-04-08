@@ -8,7 +8,7 @@ from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
 
-logger = logging.getLogger("colony_langchain")
+logger = logging.getLogger("langchain_colony")
 
 # Tool names that perform write operations
 _WRITE_TOOLS = frozenset(
@@ -83,7 +83,7 @@ class ColonyCallbackHandler(BaseCallbackHandler):
 
     Usage::
 
-        from colony_langchain import ColonyCallbackHandler
+        from langchain_colony import ColonyCallbackHandler
 
         handler = ColonyCallbackHandler()
 
