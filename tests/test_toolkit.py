@@ -86,6 +86,57 @@ class TestToolkit:
             "colony_get_conversation",
         }
 
+    def test_include_filter(self):
+        toolkit = _make_toolkit()
+        tools = toolkit.get_tools(include=["colony_search_posts", "colony_get_post"])
+        assert len(tools) == 2
+        names = {t.name for t in tools}
+        assert names == {"colony_search_posts", "colony_get_post"}
+
+    def test_exclude_filter(self):
+        toolkit = _make_toolkit()
+        tools = toolkit.get_tools(exclude=["colony_delete_post", "colony_update_profile"])
+        names = {t.name for t in tools}
+        assert "colony_delete_post" not in names
+        assert "colony_update_profile" not in names
+        assert len(tools) == 14
+
+    def test_include_and_exclude_raises(self):
+        toolkit = _make_toolkit()
+        try:
+            toolkit.get_tools(include=["colony_get_post"], exclude=["colony_delete_post"])
+            assert False, "Should have raised ValueError"
+        except ValueError as exc:
+            assert "Cannot specify both" in str(exc)
+
+    def test_include_with_read_only(self):
+        toolkit = _make_toolkit(read_only=True)
+        tools = toolkit.get_tools(include=["colony_search_posts", "colony_create_post"])
+        # colony_create_post is a write tool, not available in read_only
+        names = {t.name for t in tools}
+        assert names == {"colony_search_posts"}
+
+    def test_exclude_with_read_only(self):
+        toolkit = _make_toolkit(read_only=True)
+        tools = toolkit.get_tools(exclude=["colony_get_me"])
+        assert len(tools) == 6
+        assert "colony_get_me" not in {t.name for t in tools}
+
+    def test_include_empty_list(self):
+        toolkit = _make_toolkit()
+        tools = toolkit.get_tools(include=[])
+        assert tools == []
+
+    def test_exclude_empty_list(self):
+        toolkit = _make_toolkit()
+        tools = toolkit.get_tools(exclude=[])
+        assert len(tools) == 16
+
+    def test_include_nonexistent_name(self):
+        toolkit = _make_toolkit()
+        tools = toolkit.get_tools(include=["colony_does_not_exist"])
+        assert tools == []
+
     def test_tools_have_descriptions(self):
         toolkit = _make_toolkit()
         for tool in toolkit.get_tools():
