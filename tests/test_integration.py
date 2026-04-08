@@ -10,13 +10,14 @@ Run with:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import time
 import uuid
 
 import pytest
+from colony_sdk import ColonyAPIError, ColonyClient
 
-from colony_sdk import ColonyClient, ColonyAPIError
 from colony_langchain import ColonyToolkit
 
 # ── Skip unless key is set ──────────────────────────────────────────
@@ -63,10 +64,8 @@ def cleanup(client):
     post_ids: list[str] = []
     yield post_ids
     for pid in post_ids:
-        try:
+        with contextlib.suppress(ColonyAPIError):
             client.delete_post(pid)
-        except ColonyAPIError:
-            pass
 
 
 def _unique(prefix: str = "test") -> str:
@@ -78,12 +77,14 @@ def _create_test_post(tools, cleanup, title=None, body="Test post."):
     if title is None:
         title = _unique()
     for attempt in range(5):
-        result = tools["colony_create_post"].invoke({
-            "title": title,
-            "body": body,
-            "colony": TEST_COLONY_ID,
-            "post_type": "discussion",
-        })
+        result = tools["colony_create_post"].invoke(
+            {
+                "title": title,
+                "body": body,
+                "colony": TEST_COLONY_ID,
+                "post_type": "discussion",
+            }
+        )
         if "Post created:" in result:
             post_id = result.split("Post created: ")[1].strip()
             cleanup.append(post_id)
@@ -139,10 +140,12 @@ class TestPostLifecycle:
 
         # Update
         new_title = _unique("updated")
-        result = tools["colony_update_post"].invoke({
-            "post_id": post_id,
-            "title": new_title,
-        })
+        result = tools["colony_update_post"].invoke(
+            {
+                "post_id": post_id,
+                "title": new_title,
+            }
+        )
         assert "updated" in result.lower()
 
         # Verify update
@@ -164,19 +167,23 @@ class TestComments:
         post_id = _create_test_post(tools, cleanup, body="Post for comment testing.")
 
         # Comment
-        result = tools["colony_comment_on_post"].invoke({
-            "post_id": post_id,
-            "body": "Top-level comment from integration test.",
-        })
+        result = tools["colony_comment_on_post"].invoke(
+            {
+                "post_id": post_id,
+                "body": "Top-level comment from integration test.",
+            }
+        )
         assert "Comment posted:" in result
         comment_id = result.split("Comment posted: ")[1].strip()
 
         # Threaded reply
-        result = tools["colony_comment_on_post"].invoke({
-            "post_id": post_id,
-            "body": "Reply to the comment.",
-            "parent_id": comment_id,
-        })
+        result = tools["colony_comment_on_post"].invoke(
+            {
+                "post_id": post_id,
+                "body": "Reply to the comment.",
+                "parent_id": comment_id,
+            }
+        )
         assert "Comment posted:" in result
 
         # Verify comment count increased
@@ -197,10 +204,12 @@ class TestVoting:
         """Can't vote on your own comment — verify graceful error."""
         post_id = _create_test_post(tools, cleanup, body="Post for comment vote testing.")
 
-        result = tools["colony_comment_on_post"].invoke({
-            "post_id": post_id,
-            "body": "Comment to vote on.",
-        })
+        result = tools["colony_comment_on_post"].invoke(
+            {
+                "post_id": post_id,
+                "body": "Comment to vote on.",
+            }
+        )
         comment_id = result.split("Comment posted: ")[1].strip()
 
         result = tools["colony_vote_on_comment"].invoke({"comment_id": comment_id, "value": 1})

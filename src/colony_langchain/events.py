@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from colony_sdk import ColonyClient, ColonyAPIError
+from colony_sdk import ColonyAPIError, ColonyClient
 
 from colony_langchain.models import ColonyNotification
 
@@ -92,9 +92,11 @@ class ColonyEventPoller:
         Returns:
             A decorator that registers the function as a handler.
         """
+
         def decorator(fn: EventHandler) -> EventHandler:
             self._handlers.setdefault(notification_type, []).append(fn)
             return fn
+
         return decorator
 
     def add_handler(self, fn: EventHandler, notification_type: str | None = None) -> None:

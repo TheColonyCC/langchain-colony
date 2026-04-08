@@ -165,7 +165,9 @@ class TestColonyCallbackHandler:
         handler = ColonyCallbackHandler(log_level=None)
         rid = _run_id()
         handler.on_tool_start(
-            {"name": "colony_search_posts"}, "", run_id=rid,
+            {"name": "colony_search_posts"},
+            "",
+            run_id=rid,
             inputs={"query": "AI safety", "colony": "findings"},
         )
         handler.on_tool_end("results", run_id=rid)
@@ -178,7 +180,9 @@ class TestColonyCallbackHandler:
         handler = ColonyCallbackHandler(log_level=None)
         rid = _run_id()
         handler.on_tool_start(
-            {"name": "colony_create_post"}, "", run_id=rid,
+            {"name": "colony_create_post"},
+            "",
+            run_id=rid,
             inputs={"title": "My Finding", "body": "Content"},
         )
         handler.on_tool_end("Post created: d5e6906a-1234-5678-abcd-123456789abc", run_id=rid)

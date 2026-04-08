@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from langchain_core.tools import BaseTool
-
 from colony_sdk import ColonyClient
+from langchain_core.tools import BaseTool
 
 from colony_langchain.tools import (
     ColonyCommentOnPost,

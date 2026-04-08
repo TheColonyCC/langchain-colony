@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
 import time
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 from urllib.error import URLError
 
+from colony_sdk import ColonyAPIError
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
-
-from colony_sdk import ColonyAPIError, ColonyClient
 
 logger = logging.getLogger("colony_langchain")
 
@@ -95,13 +94,17 @@ def _retry_api_call(
             last_exc = exc
             if exc.status not in _RETRYABLE_STATUSES:
                 raise
-            delay = min(cfg.base_delay * (2 ** attempt), cfg.max_delay)
-            logger.info("Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, cfg.max_retries, delay)
+            delay = min(cfg.base_delay * (2**attempt), cfg.max_delay)
+            logger.info(
+                "Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, cfg.max_retries, delay
+            )
             time.sleep(delay)
         except (URLError, TimeoutError, ConnectionError, OSError) as exc:
             last_exc = exc
-            delay = min(cfg.base_delay * (2 ** attempt), cfg.max_delay)
-            logger.info("Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, cfg.max_retries, delay, exc)
+            delay = min(cfg.base_delay * (2**attempt), cfg.max_delay)
+            logger.info(
+                "Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, cfg.max_retries, delay, exc
+            )
             time.sleep(delay)
     raise last_exc  # type: ignore[misc]
 
@@ -124,13 +127,17 @@ async def _async_retry_api_call(
             last_exc = exc
             if exc.status not in _RETRYABLE_STATUSES:
                 raise
-            delay = min(cfg.base_delay * (2 ** attempt), cfg.max_delay)
-            logger.info("Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, cfg.max_retries, delay)
+            delay = min(cfg.base_delay * (2**attempt), cfg.max_delay)
+            logger.info(
+                "Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, cfg.max_retries, delay
+            )
             await asyncio.sleep(delay)
         except (URLError, TimeoutError, ConnectionError, OSError) as exc:
             last_exc = exc
-            delay = min(cfg.base_delay * (2 ** attempt), cfg.max_delay)
-            logger.info("Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, cfg.max_retries, delay, exc)
+            delay = min(cfg.base_delay * (2**attempt), cfg.max_delay)
+            logger.info(
+                "Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, cfg.max_retries, delay, exc
+            )
             await asyncio.sleep(delay)
     raise last_exc  # type: ignore[misc]
 
@@ -144,9 +151,11 @@ def _format_posts(data: dict) -> str:
     for p in posts:
         score = p.get("score", 0)
         comments = p.get("comment_count", 0)
+        author = p.get("author", {}).get("username", "?")
+        colony = p.get("colony", {}).get("name", "?")
         lines.append(
             f"- [{p['post_type']}] {p['title']} (score: {score}, comments: {comments})\n"
-            f"  id: {p['id']} | by: {p.get('author', {}).get('username', '?')} | colony: {p.get('colony', {}).get('name', '?')}"
+            f"  id: {p['id']} | by: {author} | colony: {colony}"
         )
     return "\n".join(lines)
 
@@ -178,7 +187,9 @@ def _format_post(data: dict) -> str:
 
 class SearchPostsInput(BaseModel):
     query: str = Field(description="Search query (min 2 characters)")
-    colony: str | None = Field(default=None, description="Colony name to filter by (e.g. 'general', 'findings', 'crypto')")
+    colony: str | None = Field(
+        default=None, description="Colony name to filter by (e.g. 'general', 'findings', 'crypto')"
+    )
     sort: str = Field(default="hot", description="Sort order: 'new', 'top', 'hot', or 'discussed'")
     limit: int = Field(default=10, description="Max posts to return (1-100)")
 
@@ -190,8 +201,13 @@ class GetPostInput(BaseModel):
 class CreatePostInput(BaseModel):
     title: str = Field(description="Post title")
     body: str = Field(description="Post body (markdown supported)")
-    colony: str = Field(default="general", description="Colony to post in (e.g. 'general', 'findings', 'questions', 'crypto', 'art')")
-    post_type: str = Field(default="discussion", description="Post type: 'discussion', 'analysis', 'question', 'finding', or 'human_request'")
+    colony: str = Field(
+        default="general", description="Colony to post in (e.g. 'general', 'findings', 'questions', 'crypto', 'art')"
+    )
+    post_type: str = Field(
+        default="discussion",
+        description="Post type: 'discussion', 'analysis', 'question', 'finding', or 'human_request'",
+    )
 
 
 class CommentOnPostInput(BaseModel):
@@ -245,7 +261,7 @@ class _ColonyBaseTool(BaseTool):
 
 
 class ColonySearchPosts(_ColonyBaseTool):
-    """Search and browse posts on The Colony — a collaborative forum where AI agents share findings and discuss ideas."""
+    """Search and browse posts on The Colony."""
 
     name: str = "colony_search_posts"
     description: str = (
@@ -407,8 +423,7 @@ class ColonyGetNotifications(_ColonyBaseTool):
 
     name: str = "colony_get_notifications"
     description: str = (
-        "Check your notifications on The Colony — replies to your posts, "
-        "mentions, direct messages, and other activity."
+        "Check your notifications on The Colony — replies to your posts, mentions, direct messages, and other activity."
     )
     args_schema: type[BaseModel] = GetNotificationsInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "notifications", "operation": "get"}
@@ -429,10 +444,7 @@ class ColonyGetNotifications(_ColonyBaseTool):
 
 def _format_notifications(data: dict | list) -> str:
     """Format notifications response into readable text."""
-    if isinstance(data, list):
-        notifications = data
-    else:
-        notifications = data.get("notifications", [])
+    notifications = data if isinstance(data, list) else data.get("notifications", [])
     if not notifications:
         return "No notifications."
     lines = []
@@ -454,7 +466,9 @@ def _format_user(data: dict) -> str:
     if u.get("bio"):
         lines.append(f"Bio: {u['bio']}")
     if u.get("post_count") is not None:
-        lines.append(f"Posts: {u.get('post_count', 0)} | Comments: {u.get('comment_count', 0)} | Score: {u.get('score', 0)}")
+        lines.append(
+            f"Posts: {u.get('post_count', 0)} | Comments: {u.get('comment_count', 0)} | Score: {u.get('score', 0)}"
+        )
     if u.get("created_at"):
         lines.append(f"Joined: {u['created_at']}")
     return "\n".join(lines)
@@ -462,10 +476,7 @@ def _format_user(data: dict) -> str:
 
 def _format_colonies(data: dict | list) -> str:
     """Format colonies list into readable text."""
-    if isinstance(data, list):
-        colonies = data
-    else:
-        colonies = data.get("colonies", [])
+    colonies = data if isinstance(data, list) else data.get("colonies", [])
     if not colonies:
         return "No colonies found."
     lines = []
@@ -531,10 +542,7 @@ class ColonyGetMe(_ColonyBaseTool):
     """Get your own profile on The Colony."""
 
     name: str = "colony_get_me"
-    description: str = (
-        "Get your own agent profile on The Colony, including username, "
-        "display name, bio, and stats."
-    )
+    description: str = "Get your own agent profile on The Colony, including username, display name, bio, and stats."
     args_schema: type[BaseModel] | None = None
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "users", "operation": "get_self"}
     tags: list[str] = ["colony", "read", "users"]
@@ -557,8 +565,7 @@ class ColonyGetUser(_ColonyBaseTool):
 
     name: str = "colony_get_user"
     description: str = (
-        "Look up a user's profile on The Colony by ID or username. "
-        "Returns their display name, bio, and activity stats."
+        "Look up a user's profile on The Colony by ID or username. Returns their display name, bio, and activity stats."
     )
     args_schema: type[BaseModel] = GetUserInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "users", "operation": "get"}
@@ -582,8 +589,7 @@ class ColonyListColonies(_ColonyBaseTool):
 
     name: str = "colony_list_colonies"
     description: str = (
-        "List all available colonies (sub-forums) on The Colony. "
-        "Use this to discover where to post or browse."
+        "List all available colonies (sub-forums) on The Colony. Use this to discover where to post or browse."
     )
     args_schema: type[BaseModel] = ListColoniesInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "colonies", "operation": "list"}
@@ -632,8 +638,7 @@ class ColonyUpdatePost(_ColonyBaseTool):
 
     name: str = "colony_update_post"
     description: str = (
-        "Update the title and/or body of one of your posts on The Colony. "
-        "Only fields you provide will be changed."
+        "Update the title and/or body of one of your posts on The Colony. Only fields you provide will be changed."
     )
     args_schema: type[BaseModel] = UpdatePostInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "posts", "operation": "update"}
@@ -656,10 +661,7 @@ class ColonyDeletePost(_ColonyBaseTool):
     """Delete one of your posts on The Colony."""
 
     name: str = "colony_delete_post"
-    description: str = (
-        "Permanently delete one of your posts on The Colony. "
-        "This cannot be undone."
-    )
+    description: str = "Permanently delete one of your posts on The Colony. This cannot be undone."
     args_schema: type[BaseModel] = DeletePostInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "posts", "operation": "delete"}
     tags: list[str] = ["colony", "write", "posts"]
@@ -681,10 +683,7 @@ class ColonyVoteOnComment(_ColonyBaseTool):
     """Vote on a comment on The Colony."""
 
     name: str = "colony_vote_on_comment"
-    description: str = (
-        "Upvote or downvote a comment on The Colony. Use +1 for upvote "
-        "and -1 for downvote."
-    )
+    description: str = "Upvote or downvote a comment on The Colony. Use +1 for upvote and -1 for downvote."
     args_schema: type[BaseModel] = VoteOnCommentInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "votes", "operation": "vote"}
     tags: list[str] = ["colony", "write", "votes"]
@@ -708,10 +707,7 @@ class ColonyMarkNotificationsRead(_ColonyBaseTool):
     """Mark all notifications as read on The Colony."""
 
     name: str = "colony_mark_notifications_read"
-    description: str = (
-        "Mark all your notifications as read on The Colony. "
-        "Use this after reviewing notifications."
-    )
+    description: str = "Mark all your notifications as read on The Colony. Use this after reviewing notifications."
     args_schema: type[BaseModel] | None = None
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "notifications", "operation": "mark_read"}
     tags: list[str] = ["colony", "write", "notifications"]
@@ -733,10 +729,7 @@ class ColonyUpdateProfile(_ColonyBaseTool):
     """Update your agent profile on The Colony."""
 
     name: str = "colony_update_profile"
-    description: str = (
-        "Update your agent profile on The Colony. You can change your "
-        "display name and bio."
-    )
+    description: str = "Update your agent profile on The Colony. You can change your display name and bio."
     args_schema: type[BaseModel] = UpdateProfileInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "users", "operation": "update_profile"}
     tags: list[str] = ["colony", "write", "users"]

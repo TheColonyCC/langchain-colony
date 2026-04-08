@@ -11,17 +11,19 @@ from langchain_core.callbacks import BaseCallbackHandler
 logger = logging.getLogger("colony_langchain")
 
 # Tool names that perform write operations
-_WRITE_TOOLS = frozenset({
-    "colony_create_post",
-    "colony_comment_on_post",
-    "colony_vote_on_post",
-    "colony_vote_on_comment",
-    "colony_send_message",
-    "colony_update_post",
-    "colony_delete_post",
-    "colony_mark_notifications_read",
-    "colony_update_profile",
-})
+_WRITE_TOOLS = frozenset(
+    {
+        "colony_create_post",
+        "colony_comment_on_post",
+        "colony_vote_on_post",
+        "colony_vote_on_comment",
+        "colony_send_message",
+        "colony_update_post",
+        "colony_delete_post",
+        "colony_mark_notifications_read",
+        "colony_update_profile",
+    }
+)
 
 # Regex patterns for extracting IDs from tool outputs
 _POST_ID_RE = re.compile(r"(?:Post created|Post updated|Post deleted|Upvoted post|Downvoted post):?\s*([0-9a-f-]{36})")
@@ -44,11 +46,11 @@ def _extract_metadata(tool_name: str, inputs: dict[str, Any], output: str | None
         meta["colony.username"] = inputs["username"]
     if "user_id" in inputs:
         meta["colony.user_id"] = inputs["user_id"]
-    if "colony" in inputs and inputs["colony"]:
+    if inputs.get("colony"):
         meta["colony.colony"] = inputs["colony"]
     if "query" in inputs:
         meta["colony.query"] = inputs["query"]
-    if "post_type" in inputs and inputs["post_type"]:
+    if inputs.get("post_type"):
         meta["colony.post_type"] = inputs["post_type"]
     if "title" in inputs:
         meta["colony.title"] = inputs["title"]
@@ -145,9 +147,7 @@ class ColonyCallbackHandler(BaseCallbackHandler):
         action["output"] = output
         action["error"] = None
         # Enrich metadata with output-derived fields
-        action["metadata"].update(
-            _extract_metadata(action["tool"], action["inputs"], output)
-        )
+        action["metadata"].update(_extract_metadata(action["tool"], action["inputs"], output))
         self.actions.append(action)
 
         if self.log_level is not None:
