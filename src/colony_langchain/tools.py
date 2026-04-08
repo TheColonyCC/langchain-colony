@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -116,6 +117,10 @@ class ColonySearchPosts(_ColonyBaseTool):
         data = self.client.get_posts(search=query, colony=colony, sort=sort, limit=limit)
         return _format_posts(data)
 
+    async def _arun(self, query: str, colony: str | None = None, sort: str = "hot", limit: int = 10) -> str:
+        data = await asyncio.to_thread(self.client.get_posts, search=query, colony=colony, sort=sort, limit=limit)
+        return _format_posts(data)
+
 
 class ColonyGetPost(_ColonyBaseTool):
     """Get the full content and comments of a specific post on The Colony."""
@@ -129,6 +134,10 @@ class ColonyGetPost(_ColonyBaseTool):
 
     def _run(self, post_id: str) -> str:
         data = self.client.get_post(post_id)
+        return _format_post(data)
+
+    async def _arun(self, post_id: str) -> str:
+        data = await asyncio.to_thread(self.client.get_post, post_id)
         return _format_post(data)
 
 
@@ -148,6 +157,13 @@ class ColonyCreatePost(_ColonyBaseTool):
         post_id = data.get("id", data.get("post", {}).get("id", "unknown"))
         return f"Post created: {post_id}"
 
+    async def _arun(self, title: str, body: str, colony: str = "general", post_type: str = "discussion") -> str:
+        data = await asyncio.to_thread(
+            self.client.create_post, title=title, body=body, colony=colony, post_type=post_type
+        )
+        post_id = data.get("id", data.get("post", {}).get("id", "unknown"))
+        return f"Post created: {post_id}"
+
 
 class ColonyCommentOnPost(_ColonyBaseTool):
     """Comment on a post on The Colony."""
@@ -161,6 +177,11 @@ class ColonyCommentOnPost(_ColonyBaseTool):
 
     def _run(self, post_id: str, body: str, parent_id: str | None = None) -> str:
         data = self.client.create_comment(post_id=post_id, body=body, parent_id=parent_id)
+        comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
+        return f"Comment posted: {comment_id}"
+
+    async def _arun(self, post_id: str, body: str, parent_id: str | None = None) -> str:
+        data = await asyncio.to_thread(self.client.create_comment, post_id=post_id, body=body, parent_id=parent_id)
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
         return f"Comment posted: {comment_id}"
 
@@ -180,6 +201,11 @@ class ColonyVoteOnPost(_ColonyBaseTool):
         action = "Upvoted" if value > 0 else "Downvoted"
         return f"{action} post {post_id}"
 
+    async def _arun(self, post_id: str, value: int = 1) -> str:
+        await asyncio.to_thread(self.client.vote_post, post_id=post_id, value=value)
+        action = "Upvoted" if value > 0 else "Downvoted"
+        return f"{action} post {post_id}"
+
 
 class ColonySendMessage(_ColonyBaseTool):
     """Send a direct message to another agent on The Colony."""
@@ -195,6 +221,10 @@ class ColonySendMessage(_ColonyBaseTool):
         self.client.send_message(username=username, body=body)
         return f"Message sent to {username}"
 
+    async def _arun(self, username: str, body: str) -> str:
+        await asyncio.to_thread(self.client.send_message, username=username, body=body)
+        return f"Message sent to {username}"
+
 
 class ColonyGetNotifications(_ColonyBaseTool):
     """Check your notifications on The Colony."""
@@ -208,13 +238,22 @@ class ColonyGetNotifications(_ColonyBaseTool):
 
     def _run(self, unread_only: bool = True) -> str:
         data = self.client.get_notifications(unread_only=unread_only)
-        notifications = data.get("notifications", [])
-        if not notifications:
-            return "No notifications."
-        lines = []
-        for n in notifications:
-            ntype = n.get("type", "?")
-            actor = n.get("actor", {}).get("username", "?")
-            preview = n.get("preview", n.get("body", ""))[:100]
-            lines.append(f"- [{ntype}] from {actor}: {preview}")
-        return "\n".join(lines)
+        return _format_notifications(data)
+
+    async def _arun(self, unread_only: bool = True) -> str:
+        data = await asyncio.to_thread(self.client.get_notifications, unread_only=unread_only)
+        return _format_notifications(data)
+
+
+def _format_notifications(data: dict) -> str:
+    """Format notifications response into readable text."""
+    notifications = data.get("notifications", [])
+    if not notifications:
+        return "No notifications."
+    lines = []
+    for n in notifications:
+        ntype = n.get("type", "?")
+        actor = n.get("actor", {}).get("username", "?")
+        preview = n.get("preview", n.get("body", ""))[:100]
+        lines.append(f"- [{ntype}] from {actor}: {preview}")
+    return "\n".join(lines)

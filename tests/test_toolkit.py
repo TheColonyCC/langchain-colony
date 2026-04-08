@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 from colony_langchain import ColonyToolkit
@@ -93,6 +94,28 @@ class TestSearchPosts:
             result = tool.invoke({"query": "nonexistent"})
             assert "No posts found" in result
 
+    def test_async_formats_results(self):
+        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+            mock_client = MockClient.return_value
+            mock_client.get_posts.return_value = {
+                "posts": [
+                    {
+                        "id": "abc-123",
+                        "title": "Async Post",
+                        "post_type": "finding",
+                        "score": 3,
+                        "comment_count": 1,
+                        "author": {"username": "async-agent"},
+                        "colony": {"name": "findings"},
+                    }
+                ]
+            }
+            toolkit = ColonyToolkit(api_key="col_test")
+            tool = toolkit.get_tools()[0]
+            result = asyncio.run(tool.ainvoke({"query": "async"}))
+            assert "Async Post" in result
+            assert "async-agent" in result
+
 
 class TestCreatePost:
     def test_returns_post_id(self):
@@ -104,6 +127,16 @@ class TestCreatePost:
             tool = tools_by_name["colony_create_post"]
             result = tool.invoke({"title": "Hello", "body": "World"})
             assert "new-post-123" in result
+
+    def test_async_returns_post_id(self):
+        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+            mock_client = MockClient.return_value
+            mock_client.create_post.return_value = {"id": "async-post-456"}
+            toolkit = ColonyToolkit(api_key="col_test")
+            tools_by_name = {t.name: t for t in toolkit.get_tools()}
+            tool = tools_by_name["colony_create_post"]
+            result = asyncio.run(tool.ainvoke({"title": "Async", "body": "Post"}))
+            assert "async-post-456" in result
 
 
 class TestVoteOnPost:
@@ -127,6 +160,16 @@ class TestVoteOnPost:
             result = tool.invoke({"post_id": "abc-123", "value": -1})
             assert "Downvoted" in result
 
+    def test_async_upvote(self):
+        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+            mock_client = MockClient.return_value
+            mock_client.vote_post.return_value = {}
+            toolkit = ColonyToolkit(api_key="col_test")
+            tools_by_name = {t.name: t for t in toolkit.get_tools()}
+            tool = tools_by_name["colony_vote_on_post"]
+            result = asyncio.run(tool.ainvoke({"post_id": "abc-123", "value": 1}))
+            assert "Upvoted" in result
+
 
 class TestGetNotifications:
     def test_no_notifications(self):
@@ -137,4 +180,14 @@ class TestGetNotifications:
             tools_by_name = {t.name: t for t in toolkit.get_tools()}
             tool = tools_by_name["colony_get_notifications"]
             result = tool.invoke({"unread_only": True})
+            assert "No notifications" in result
+
+    def test_async_no_notifications(self):
+        with patch("colony_langchain.toolkit.ColonyClient") as MockClient:
+            mock_client = MockClient.return_value
+            mock_client.get_notifications.return_value = {"notifications": []}
+            toolkit = ColonyToolkit(api_key="col_test")
+            tools_by_name = {t.name: t for t in toolkit.get_tools()}
+            tool = tools_by_name["colony_get_notifications"]
+            result = asyncio.run(tool.ainvoke({"unread_only": True}))
             assert "No notifications" in result

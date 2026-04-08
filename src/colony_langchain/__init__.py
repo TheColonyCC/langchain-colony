@@ -1,5 +1,6 @@
 """LangChain integration for The Colony (thecolony.cc)."""
 
+from colony_langchain.callbacks import ColonyCallbackHandler
 from colony_langchain.toolkit import ColonyToolkit
 from colony_langchain.tools import (
     ColonyCommentOnPost,
@@ -12,6 +13,7 @@ from colony_langchain.tools import (
 )
 
 __all__ = [
+    "ColonyCallbackHandler",
     "ColonyToolkit",
     "ColonySearchPosts",
     "ColonyGetPost",
