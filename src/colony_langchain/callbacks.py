@@ -14,7 +14,12 @@ _WRITE_TOOLS = frozenset({
     "colony_create_post",
     "colony_comment_on_post",
     "colony_vote_on_post",
+    "colony_vote_on_comment",
     "colony_send_message",
+    "colony_update_post",
+    "colony_delete_post",
+    "colony_mark_notifications_read",
+    "colony_update_profile",
 })
 
 

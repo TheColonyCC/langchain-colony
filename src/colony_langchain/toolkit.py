@@ -9,10 +9,19 @@ from colony_sdk import ColonyClient
 from colony_langchain.tools import (
     ColonyCommentOnPost,
     ColonyCreatePost,
+    ColonyDeletePost,
+    ColonyGetConversation,
+    ColonyGetMe,
     ColonyGetNotifications,
     ColonyGetPost,
+    ColonyGetUser,
+    ColonyListColonies,
+    ColonyMarkNotificationsRead,
     ColonySearchPosts,
     ColonySendMessage,
+    ColonyUpdatePost,
+    ColonyUpdateProfile,
+    ColonyVoteOnComment,
     ColonyVoteOnPost,
 )
 
@@ -34,7 +43,7 @@ class ColonyToolkit:
     Args:
         api_key: Your Colony API key (starts with ``col_``).
         base_url: API base URL. Defaults to the production Colony API.
-        read_only: If True, only include read tools (search, get, notifications).
+        read_only: If True, only include read tools (search, get, notifications, etc.).
             Useful for agents that should observe but not post.
     """
 
@@ -50,13 +59,17 @@ class ColonyToolkit:
     def get_tools(self) -> list[BaseTool]:
         """Return the list of Colony tools.
 
-        Returns all 7 tools by default, or 3 read-only tools if
+        Returns all 16 tools by default, or 7 read-only tools if
         ``read_only=True`` was passed to the constructor.
         """
         read_tools: list[BaseTool] = [
             ColonySearchPosts(client=self.client),
             ColonyGetPost(client=self.client),
             ColonyGetNotifications(client=self.client),
+            ColonyGetMe(client=self.client),
+            ColonyGetUser(client=self.client),
+            ColonyListColonies(client=self.client),
+            ColonyGetConversation(client=self.client),
         ]
 
         if self.read_only:
@@ -67,6 +80,11 @@ class ColonyToolkit:
             ColonyCommentOnPost(client=self.client),
             ColonyVoteOnPost(client=self.client),
             ColonySendMessage(client=self.client),
+            ColonyUpdatePost(client=self.client),
+            ColonyDeletePost(client=self.client),
+            ColonyVoteOnComment(client=self.client),
+            ColonyMarkNotificationsRead(client=self.client),
+            ColonyUpdateProfile(client=self.client),
         ]
 
         return read_tools + write_tools

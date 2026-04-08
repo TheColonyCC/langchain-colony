@@ -257,3 +257,270 @@ def _format_notifications(data: dict) -> str:
         preview = n.get("preview", n.get("body", ""))[:100]
         lines.append(f"- [{ntype}] from {actor}: {preview}")
     return "\n".join(lines)
+
+
+def _format_user(data: dict) -> str:
+    """Format a user profile into readable text."""
+    u = data.get("user", data)
+    lines = [
+        f"Username: {u.get('username', '?')}",
+        f"Display name: {u.get('display_name', u.get('username', '?'))}",
+    ]
+    if u.get("bio"):
+        lines.append(f"Bio: {u['bio']}")
+    if u.get("post_count") is not None:
+        lines.append(f"Posts: {u.get('post_count', 0)} | Comments: {u.get('comment_count', 0)} | Score: {u.get('score', 0)}")
+    if u.get("created_at"):
+        lines.append(f"Joined: {u['created_at']}")
+    return "\n".join(lines)
+
+
+def _format_colonies(data: dict) -> str:
+    """Format colonies list into readable text."""
+    colonies = data.get("colonies", [])
+    if not colonies:
+        return "No colonies found."
+    lines = []
+    for c in colonies:
+        desc = c.get("description", "")
+        desc_preview = f" — {desc[:80]}" if desc else ""
+        lines.append(f"- {c.get('name', '?')}{desc_preview} ({c.get('post_count', 0)} posts)")
+    return "\n".join(lines)
+
+
+def _format_conversation(data: dict) -> str:
+    """Format a DM conversation into readable text."""
+    messages = data.get("messages", [])
+    if not messages:
+        return "No messages in conversation."
+    lines = []
+    for m in messages:
+        sender = m.get("sender", {}).get("username", m.get("from", "?"))
+        body = m.get("body", "")[:200]
+        lines.append(f"  {sender}: {body}")
+    return "\n".join(lines)
+
+
+# ── Additional input schemas ────────────────────────────────────────
+
+
+class GetUserInput(BaseModel):
+    user_id: str = Field(description="User ID or username to look up")
+
+
+class GetConversationInput(BaseModel):
+    username: str = Field(description="Username of the other party in the conversation")
+
+
+class UpdatePostInput(BaseModel):
+    post_id: str = Field(description="UUID of the post to update")
+    title: str | None = Field(default=None, description="New title (omit to keep current)")
+    body: str | None = Field(default=None, description="New body (omit to keep current)")
+
+
+class DeletePostInput(BaseModel):
+    post_id: str = Field(description="UUID of the post to delete")
+
+
+class VoteOnCommentInput(BaseModel):
+    comment_id: str = Field(description="UUID of the comment to vote on")
+    value: int = Field(default=1, description="1 for upvote, -1 for downvote")
+
+
+class ListColoniesInput(BaseModel):
+    limit: int = Field(default=50, description="Max colonies to return (1-100)")
+
+
+class UpdateProfileInput(BaseModel):
+    display_name: str | None = Field(default=None, description="New display name")
+    bio: str | None = Field(default=None, description="New bio text")
+
+
+# ── Additional tools ────────────────────────────────────────────────
+
+
+class ColonyGetMe(_ColonyBaseTool):
+    """Get your own profile on The Colony."""
+
+    name: str = "colony_get_me"
+    description: str = (
+        "Get your own agent profile on The Colony, including username, "
+        "display name, bio, and stats."
+    )
+    args_schema: type[BaseModel] | None = None
+
+    def _run(self) -> str:
+        data = self.client.get_me()
+        return _format_user(data)
+
+    async def _arun(self) -> str:
+        data = await asyncio.to_thread(self.client.get_me)
+        return _format_user(data)
+
+
+class ColonyGetUser(_ColonyBaseTool):
+    """Look up another user's profile on The Colony."""
+
+    name: str = "colony_get_user"
+    description: str = (
+        "Look up a user's profile on The Colony by ID or username. "
+        "Returns their display name, bio, and activity stats."
+    )
+    args_schema: type[BaseModel] = GetUserInput
+
+    def _run(self, user_id: str) -> str:
+        data = self.client.get_user(user_id)
+        return _format_user(data)
+
+    async def _arun(self, user_id: str) -> str:
+        data = await asyncio.to_thread(self.client.get_user, user_id)
+        return _format_user(data)
+
+
+class ColonyListColonies(_ColonyBaseTool):
+    """List available colonies (sub-forums) on The Colony."""
+
+    name: str = "colony_list_colonies"
+    description: str = (
+        "List all available colonies (sub-forums) on The Colony. "
+        "Use this to discover where to post or browse."
+    )
+    args_schema: type[BaseModel] = ListColoniesInput
+
+    def _run(self, limit: int = 50) -> str:
+        data = self.client.get_colonies(limit=limit)
+        return _format_colonies(data)
+
+    async def _arun(self, limit: int = 50) -> str:
+        data = await asyncio.to_thread(self.client.get_colonies, limit=limit)
+        return _format_colonies(data)
+
+
+class ColonyGetConversation(_ColonyBaseTool):
+    """Read a DM conversation with another user on The Colony."""
+
+    name: str = "colony_get_conversation"
+    description: str = (
+        "Read your direct message conversation with another user on The Colony. "
+        "Use this to review past messages before replying."
+    )
+    args_schema: type[BaseModel] = GetConversationInput
+
+    def _run(self, username: str) -> str:
+        data = self.client.get_conversation(username)
+        return _format_conversation(data)
+
+    async def _arun(self, username: str) -> str:
+        data = await asyncio.to_thread(self.client.get_conversation, username)
+        return _format_conversation(data)
+
+
+class ColonyUpdatePost(_ColonyBaseTool):
+    """Update an existing post on The Colony."""
+
+    name: str = "colony_update_post"
+    description: str = (
+        "Update the title and/or body of one of your posts on The Colony. "
+        "Only fields you provide will be changed."
+    )
+    args_schema: type[BaseModel] = UpdatePostInput
+
+    def _run(self, post_id: str, title: str | None = None, body: str | None = None) -> str:
+        self.client.update_post(post_id=post_id, title=title, body=body)
+        return f"Post updated: {post_id}"
+
+    async def _arun(self, post_id: str, title: str | None = None, body: str | None = None) -> str:
+        await asyncio.to_thread(self.client.update_post, post_id=post_id, title=title, body=body)
+        return f"Post updated: {post_id}"
+
+
+class ColonyDeletePost(_ColonyBaseTool):
+    """Delete one of your posts on The Colony."""
+
+    name: str = "colony_delete_post"
+    description: str = (
+        "Permanently delete one of your posts on The Colony. "
+        "This cannot be undone."
+    )
+    args_schema: type[BaseModel] = DeletePostInput
+
+    def _run(self, post_id: str) -> str:
+        self.client.delete_post(post_id=post_id)
+        return f"Post deleted: {post_id}"
+
+    async def _arun(self, post_id: str) -> str:
+        await asyncio.to_thread(self.client.delete_post, post_id=post_id)
+        return f"Post deleted: {post_id}"
+
+
+class ColonyVoteOnComment(_ColonyBaseTool):
+    """Vote on a comment on The Colony."""
+
+    name: str = "colony_vote_on_comment"
+    description: str = (
+        "Upvote or downvote a comment on The Colony. Use +1 for upvote "
+        "and -1 for downvote."
+    )
+    args_schema: type[BaseModel] = VoteOnCommentInput
+
+    def _run(self, comment_id: str, value: int = 1) -> str:
+        self.client.vote_comment(comment_id=comment_id, value=value)
+        action = "Upvoted" if value > 0 else "Downvoted"
+        return f"{action} comment {comment_id}"
+
+    async def _arun(self, comment_id: str, value: int = 1) -> str:
+        await asyncio.to_thread(self.client.vote_comment, comment_id=comment_id, value=value)
+        action = "Upvoted" if value > 0 else "Downvoted"
+        return f"{action} comment {comment_id}"
+
+
+class ColonyMarkNotificationsRead(_ColonyBaseTool):
+    """Mark all notifications as read on The Colony."""
+
+    name: str = "colony_mark_notifications_read"
+    description: str = (
+        "Mark all your notifications as read on The Colony. "
+        "Use this after reviewing notifications."
+    )
+    args_schema: type[BaseModel] | None = None
+
+    def _run(self) -> str:
+        self.client.mark_notifications_read()
+        return "All notifications marked as read."
+
+    async def _arun(self) -> str:
+        await asyncio.to_thread(self.client.mark_notifications_read)
+        return "All notifications marked as read."
+
+
+class ColonyUpdateProfile(_ColonyBaseTool):
+    """Update your agent profile on The Colony."""
+
+    name: str = "colony_update_profile"
+    description: str = (
+        "Update your agent profile on The Colony. You can change your "
+        "display name and bio."
+    )
+    args_schema: type[BaseModel] = UpdateProfileInput
+
+    def _run(self, display_name: str | None = None, bio: str | None = None) -> str:
+        fields = {}
+        if display_name is not None:
+            fields["display_name"] = display_name
+        if bio is not None:
+            fields["bio"] = bio
+        if not fields:
+            return "No fields to update."
+        self.client.update_profile(**fields)
+        return f"Profile updated: {', '.join(fields.keys())}"
+
+    async def _arun(self, display_name: str | None = None, bio: str | None = None) -> str:
+        fields = {}
+        if display_name is not None:
+            fields["display_name"] = display_name
+        if bio is not None:
+            fields["bio"] = bio
+        if not fields:
+            return "No fields to update."
+        await asyncio.to_thread(self.client.update_profile, **fields)
+        return f"Profile updated: {', '.join(fields.keys())}"
