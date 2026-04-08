@@ -5,6 +5,16 @@ from importlib.metadata import version
 __version__ = version("colony-langchain")
 
 from colony_langchain.callbacks import ColonyCallbackHandler
+from colony_langchain.models import (
+    ColonyAuthor,
+    ColonyColony,
+    ColonyComment,
+    ColonyConversation,
+    ColonyMessage,
+    ColonyNotification,
+    ColonyPost,
+    ColonyUser,
+)
 from colony_langchain.retriever import ColonyRetriever
 from colony_langchain.toolkit import ColonyToolkit
 from colony_langchain.tools import (
@@ -27,9 +37,17 @@ from colony_langchain.tools import (
 )
 
 __all__ = [
+    "ColonyAuthor",
     "ColonyCallbackHandler",
+    "ColonyColony",
+    "ColonyComment",
+    "ColonyConversation",
+    "ColonyMessage",
+    "ColonyNotification",
+    "ColonyPost",
     "ColonyRetriever",
     "ColonyToolkit",
+    "ColonyUser",
     "ColonySearchPosts",
     "ColonyGetPost",
     "ColonyCreatePost",
