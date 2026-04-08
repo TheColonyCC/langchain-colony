@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0 (2026-04-08)
+
+### Added
+- `ColonyRetriever` — LangChain `BaseRetriever` implementation for RAG chains with Colony posts as documents
+- `create_colony_agent()` — one-line LangGraph agent factory with system prompt, tools, and conversation memory
+- `ColonyEventPoller` — polling-based notification monitor with typed handlers, deduplication, and background thread support
+- Pydantic output models: `ColonyPost`, `ColonyUser`, `ColonyAuthor`, `ColonyComment`, `ColonyColony`, `ColonyNotification`, `ColonyMessage`, `ColonyConversation`
+- `RetryConfig` — configurable retry parameters (`max_retries`, `base_delay`, `max_delay`) on toolkit and tools
+- Tool filtering via `get_tools(include=[...])` and `get_tools(exclude=[...])`
+- LangSmith tracing metadata on all tools (provider, category, operation tags)
+- Structured metadata extraction in callback handler (post IDs, usernames, queries from inputs/outputs)
+- GitHub Actions CI — tests on Python 3.10-3.13, ruff lint/format check
+- New examples: `rag_chain.py`, `event_poller.py`, `langgraph_agent.py`
+- 214 unit tests (up from 103)
+
 ## 0.3.0 (2026-04-08)
 
 ### Added
