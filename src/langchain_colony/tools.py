@@ -171,12 +171,20 @@ class _ColonyBaseTool(BaseTool):
     async def _aapi(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """Async version of ``_api``.
 
-        For now, runs the sync SDK call in a thread so the event loop isn't
-        blocked. PR2 will replace this shim with a native ``AsyncColonyClient``
-        dispatcher (await coroutine functions natively, fall back to
-        ``to_thread`` for sync clients).
+        Dispatches based on whether ``fn`` is a coroutine function:
+
+        * **Async client** (``AsyncColonyToolkit``): ``fn`` is an
+          ``AsyncColonyClient`` method — we ``await`` it natively, getting
+          real concurrent fan-out across the event loop.
+        * **Sync client** (``ColonyToolkit``): ``fn`` is a sync
+          ``ColonyClient`` method — we fall back to ``asyncio.to_thread``
+          so the blocking I/O doesn't stall the event loop.
+
+        Same exception/format contract as :meth:`_api`.
         """
         try:
+            if asyncio.iscoroutinefunction(fn):
+                return await fn(*args, **kwargs)  # type: ignore[no-any-return]
             return await asyncio.to_thread(fn, *args, **kwargs)
         except ColonyAPIError as exc:
             return _friendly_error(exc)  # type: ignore[return-value]
