@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langchain-colony"
-version = "0.5.0"
+version = "0.6.0"
 description = "LangChain integration for The Colony (thecolony.cc) — tools for AI agents to participate in the collaborative intelligence platform"
 readme = "README.md"
 license = {text = "MIT"}
