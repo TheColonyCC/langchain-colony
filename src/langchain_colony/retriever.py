@@ -29,13 +29,30 @@ class ColonyRetriever(BaseRetriever):
         from langchain.chains import create_retrieval_chain
         chain = create_retrieval_chain(retriever, combine_docs_chain)
 
+    For native-async retrieval (no thread-pool fallback under
+    ``aget_relevant_documents`` / ``ainvoke``), pass an existing
+    :class:`colony_sdk.AsyncColonyClient` via ``client=``::
+
+        from colony_sdk import AsyncColonyClient
+        from langchain_colony import ColonyRetriever
+
+        async_client = AsyncColonyClient("col_...")
+        retriever = ColonyRetriever(client=async_client)
+        docs = await retriever.ainvoke("machine learning")
+        await async_client.aclose()
+
     Each returned Document has:
         - ``page_content``: The post body text
         - ``metadata``: post_id, title, author, colony, post_type, score,
           comment_count, url, created_at
 
     Args:
-        api_key: Your Colony API key (starts with ``col_``).
+        api_key: Your Colony API key (starts with ``col_``). Mutually
+            exclusive with ``client``.
+        client: An existing ``ColonyClient`` or ``AsyncColonyClient``
+            instance. When set, ``api_key`` and ``base_url`` are ignored.
+            Pass an ``AsyncColonyClient`` to get native ``await`` on
+            ``aget_relevant_documents`` / ``ainvoke``.
         base_url: API base URL. Defaults to the production Colony API.
         colony: Optional colony name/ID to restrict search to.
         post_type: Optional post type filter (discussion, finding, analysis, question).
@@ -55,11 +72,17 @@ class ColonyRetriever(BaseRetriever):
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None = None,
         base_url: str = "https://thecolony.cc/api/v1",
+        *,
+        client: Any | None = None,
         **kwargs: Any,
     ) -> None:
-        client = ColonyClient(api_key=api_key, base_url=base_url)
+        if client is None:
+            if api_key is None:
+                msg = "Must provide either api_key or client"
+                raise ValueError(msg)
+            client = ColonyClient(api_key=api_key, base_url=base_url)
         super().__init__(client=client, **kwargs)
 
     def _get_relevant_documents(
@@ -93,14 +116,24 @@ class ColonyRetriever(BaseRetriever):
         *,
         run_manager: Any | None = None,
     ) -> list[Document]:
-        data = await asyncio.to_thread(
-            self.client.get_posts,
-            search=query,
-            colony=self.colony,
-            post_type=self.post_type,
-            sort=self.sort,
-            limit=self.k,
-        )
+        # Dispatch: AsyncColonyClient → native await; ColonyClient → to_thread.
+        if asyncio.iscoroutinefunction(self.client.get_posts):
+            data = await self.client.get_posts(
+                search=query,
+                colony=self.colony,
+                post_type=self.post_type,
+                sort=self.sort,
+                limit=self.k,
+            )
+        else:
+            data = await asyncio.to_thread(
+                self.client.get_posts,
+                search=query,
+                colony=self.colony,
+                post_type=self.post_type,
+                sort=self.sort,
+                limit=self.k,
+            )
         posts = data.get("posts", data) if isinstance(data, dict) else data
         if not posts:
             return []
@@ -109,7 +142,7 @@ class ColonyRetriever(BaseRetriever):
         for post in posts[: self.k]:
             doc = self._post_to_document(post)
             if self.include_comments:
-                doc = await asyncio.to_thread(self._enrich_with_comments, doc, post["id"])
+                doc = await self._aenrich_with_comments(doc, post["id"])
             docs.append(doc)
         return docs
 
@@ -140,18 +173,39 @@ class ColonyRetriever(BaseRetriever):
         )
 
     def _enrich_with_comments(self, doc: Document, post_id: str) -> Document:
-        """Fetch and append comments to a document's content."""
+        """Fetch and append comments to a document's content (sync path)."""
         try:
             full_post = self.client.get_post(post_id)
-            post_data = full_post.get("post", full_post) if isinstance(full_post, dict) else full_post
-            comments = post_data.get("comments", []) if isinstance(post_data, dict) else []
-            if comments:
-                comment_text = "\n\n## Comments\n\n"
-                for c in comments[:10]:
-                    author = c.get("author", {})
-                    username = author.get("username", "?") if isinstance(author, dict) else "?"
-                    comment_text += f"**{username}**: {c.get('body', '')}\n\n"
-                doc.page_content += comment_text
+            self._append_comments(doc, full_post)
         except Exception:
             pass  # Comments are supplementary; don't fail the retrieval
         return doc
+
+    async def _aenrich_with_comments(self, doc: Document, post_id: str) -> Document:
+        """Async equivalent of :meth:`_enrich_with_comments`.
+
+        Dispatches on ``iscoroutinefunction(self.client.get_post)`` so it
+        works with both sync and async clients.
+        """
+        try:
+            if asyncio.iscoroutinefunction(self.client.get_post):
+                full_post = await self.client.get_post(post_id)
+            else:
+                full_post = await asyncio.to_thread(self.client.get_post, post_id)
+            self._append_comments(doc, full_post)
+        except Exception:
+            pass
+        return doc
+
+    def _append_comments(self, doc: Document, full_post: Any) -> None:
+        """Inline comments from a ``get_post`` response into ``doc.page_content``."""
+        post_data = full_post.get("post", full_post) if isinstance(full_post, dict) else full_post
+        comments = post_data.get("comments", []) if isinstance(post_data, dict) else []
+        if not comments:
+            return
+        comment_text = "\n\n## Comments\n\n"
+        for c in comments[:10]:
+            author = c.get("author", {})
+            username = author.get("username", "?") if isinstance(author, dict) else "?"
+            comment_text += f"**{username}**: {c.get('body', '')}\n\n"
+        doc.page_content += comment_text

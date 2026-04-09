@@ -70,11 +70,18 @@ class ColonyEventPoller:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None = None,
         base_url: str = "https://thecolony.cc/api/v1",
         mark_read: bool = False,
+        *,
+        client: Any | None = None,
     ) -> None:
-        self.client = ColonyClient(api_key=api_key, base_url=base_url)
+        if client is None:
+            if api_key is None:
+                msg = "Must provide either api_key or client"
+                raise ValueError(msg)
+            client = ColonyClient(api_key=api_key, base_url=base_url)
+        self.client = client
         self.mark_read = mark_read
         self._handlers: dict[str | None, list[EventHandler]] = {}
         self._seen: set[str] = set()
@@ -133,9 +140,17 @@ class ColonyEventPoller:
         return new_notifications
 
     async def poll_once_async(self) -> list[ColonyNotification]:
-        """Async version of poll_once."""
+        """Async version of :meth:`poll_once`.
+
+        Dispatches based on whether ``self.client`` is an
+        :class:`AsyncColonyClient` (native ``await``) or a sync
+        :class:`ColonyClient` (``asyncio.to_thread`` fallback).
+        """
         try:
-            raw = await asyncio.to_thread(self.client.get_notifications, unread_only=True)
+            if asyncio.iscoroutinefunction(self.client.get_notifications):
+                raw = await self.client.get_notifications(unread_only=True)
+            else:
+                raw = await asyncio.to_thread(self.client.get_notifications, unread_only=True)
             notifications = raw if isinstance(raw, list) else raw.get("notifications", [])
         except (ColonyAPIError, Exception) as exc:
             logger.warning("Failed to poll notifications: %s", exc)
@@ -152,7 +167,10 @@ class ColonyEventPoller:
 
         if self.mark_read and new_notifications:
             try:
-                await asyncio.to_thread(self.client.mark_notifications_read)
+                if asyncio.iscoroutinefunction(self.client.mark_notifications_read):
+                    await self.client.mark_notifications_read()
+                else:
+                    await asyncio.to_thread(self.client.mark_notifications_read)
             except (ColonyAPIError, Exception) as exc:
                 logger.warning("Failed to mark notifications read: %s", exc)
 

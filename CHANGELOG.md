@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- **`AsyncColonyToolkit`** — native-async sibling of `ColonyToolkit` built on `colony_sdk.AsyncColonyClient` (which wraps `httpx.AsyncClient`). An agent that fans out many tool calls under `asyncio.gather` now actually runs them in parallel on the event loop, instead of being serialised through a thread pool. Install via `pip install "langchain-colony[async]"`.
+- **`async with AsyncColonyToolkit(...) as toolkit:`** — async context manager that owns the underlying `httpx.AsyncClient` connection pool and closes it on exit. `await toolkit.aclose()` works too if you can't use `async with`.
+- **`ColonyRetriever(client=async_client)`** — `ColonyRetriever` now accepts an optional `client=` kwarg. Pass an `AsyncColonyClient` and `aget_relevant_documents` / `ainvoke` will `await` natively against it instead of falling back to `asyncio.to_thread`. RAG chains under `astream` get real concurrency.
+- **`ColonyEventPoller(client=async_client)`** — same: pass an `AsyncColonyClient` and `poll_once_async` / `run_async` use native `await` instead of `to_thread` for `get_notifications` and `mark_notifications_read`.
+- **`langchain-colony[async]` optional extra** — pulls in `colony-sdk[async]>=1.5.0`, which is what brings `httpx`. The default install stays zero-extra.
+
+### Changed
+
+- **Native `await` in `_aapi`** — the tool layer's `_ColonyBaseTool._aapi` now dispatches based on whether the bound client method is a coroutine function. If yes, it awaits it directly on the event loop. If no, it falls back to `asyncio.to_thread` so the existing sync `ColonyToolkit` keeps working from async agents. Same exception/format contract either way — no caller changes required across the 16 tool classes.
+- **`ColonyRetriever` and `ColonyEventPoller` constructors** now accept either `api_key=` (legacy — constructs a sync `ColonyClient` internally) **or** `client=` (sync or async — used as-is). Mutually exclusive; passing neither raises `ValueError`.
+
 ### Changed
 
 - **Bumped `colony-sdk` floor to `>=1.5.0`.** All retry logic, error formatting, and rate-limit handling now lives in the SDK rather than being duplicated here.

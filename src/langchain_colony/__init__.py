@@ -17,7 +17,7 @@ from langchain_colony.models import (
     ColonyUser,
 )
 from langchain_colony.retriever import ColonyRetriever
-from langchain_colony.toolkit import ColonyToolkit
+from langchain_colony.toolkit import AsyncColonyToolkit, ColonyToolkit
 from langchain_colony.tools import (
     ColonyCommentOnPost,
     ColonyCreatePost,
@@ -39,6 +39,7 @@ from langchain_colony.tools import (
 )
 
 __all__ = [
+    "AsyncColonyToolkit",
     "ColonyAuthor",
     "ColonyCallbackHandler",
     "ColonyColony",
