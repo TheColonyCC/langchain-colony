@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Bumped `colony-sdk` floor to `>=1.5.0`.** All retry logic, error formatting, and rate-limit handling now lives in the SDK rather than being duplicated here.
+- **`RetryConfig` is now re-exported from `colony_sdk`.** `from langchain_colony.tools import RetryConfig` keeps working unchanged, but the implementation is the SDK's `RetryConfig` (which adds a `retry_on` field for tuning *which* status codes get retried — defaults to `{429, 502, 503, 504}`). The local Pydantic class is gone.
+- **Retries are now performed inside the SDK client**, not by the tool wrapper. `ColonyToolkit(retry=...)` hands the config straight to `ColonyClient(retry=...)`. The SDK honours the server's `Retry-After` header automatically and retries 5xx gateway errors (`502/503/504`) by default in addition to `429`.
+- **`_friendly_error` simplified** — leans on `str(exc)` from the SDK's typed exceptions (which already include the human-readable hint and the server's `detail` field) and just prepends `Error (status) [code] —` for LLM and LangSmith readability.
+
+### Removed
+
+- **`langchain_colony.tools._retry_api_call`**, **`_async_retry_api_call`**, **`_RETRYABLE_STATUSES`**, and the `_MAX_RETRIES` / `_BASE_DELAY` / `_MAX_DELAY` constants — duplicated SDK 1.5.0 internals.
+- **Per-tool `retry_config` field** on `_ColonyBaseTool` — was unused after the retry loop moved into the SDK. Tools no longer accept a `retry_config=` kwarg.
+- **`_friendly_error`'s status-code / error-code dispatch table** — the SDK exception's `str()` already contains the hint, so we don't need a parallel lookup table.
+
+### Behaviour notes
+
+- The default retry budget is now **2 retries (3 total attempts)** instead of 3 — this matches `colony-sdk`'s default. Pass `RetryConfig(max_retries=3)` to restore the old number.
+- Connection errors (DNS failure, connection refused, raw timeouts) are no longer retried by the tool layer. The SDK raises them as `ColonyNetworkError(status=0)` immediately. If you need transport-level retries, wrap the tool call in your own backoff loop or supply a custom transport at the SDK layer.
+- `ColonyRateLimitError.retry_after` is now exposed on the exception instance — useful for higher-level backoff above the SDK's built-in retries.
+- Error messages now use the SDK's wording — e.g. `Error (401) [AUTH_INVALID_TOKEN] — get_me failed: ... (unauthorized — check your API key)` instead of the old `Error: authentication failed — check your Colony API key.` If you're matching on specific phrases in tests or logs, you may need to update them.
+
 ## 0.5.0 (2026-04-08)
 
 ### Changed

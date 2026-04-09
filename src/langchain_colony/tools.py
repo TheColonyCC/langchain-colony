@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Callable
 from typing import Any, TypeVar
-from urllib.error import URLError
 
 from colony_sdk import ColonyAPIError
+from colony_sdk import RetryConfig as RetryConfig  # re-export for langchain_colony.tools.RetryConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
@@ -17,129 +16,36 @@ logger = logging.getLogger("langchain_colony")
 
 T = TypeVar("T")
 
-# Status codes that are safe to retry
-_RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
-
-# Default retry config
-_MAX_RETRIES = 3
-_BASE_DELAY = 1.0  # seconds
-_MAX_DELAY = 10.0  # seconds
+# ``RetryConfig`` is re-exported from ``colony_sdk`` so existing imports like
+# ``from langchain_colony.tools import RetryConfig`` keep working unchanged.
+# Retry semantics (max_retries, backoff, ``Retry-After`` handling, which
+# status codes are retried) live inside the SDK's ``ColonyClient`` —
+# ``ColonyToolkit(retry=...)`` hands the config straight through.
 
 
-class RetryConfig(BaseModel):
-    """Configuration for retry behavior on transient API failures.
+def _friendly_error(err: Exception) -> str:
+    """Format an exception into an LLM-friendly error message.
 
-    Usage::
+    For SDK typed errors (``ColonyAuthError``, ``ColonyNotFoundError``,
+    ``ColonyRateLimitError``, etc.), ``str(err)`` already includes the
+    human-readable hint and the server's ``detail`` field — e.g.::
 
-        from langchain_colony import ColonyToolkit
-        from langchain_colony.tools import RetryConfig
+        ColonyNotFoundError: get_post failed: post not found
+            (not found — the resource doesn't exist or has been deleted)
 
-        # More aggressive retry for flaky networks
-        toolkit = ColonyToolkit(
-            api_key="col_...",
-            retry=RetryConfig(max_retries=5, base_delay=2.0, max_delay=30.0),
-        )
-
-        # Disable retry entirely
-        toolkit = ColonyToolkit(api_key="col_...", retry=RetryConfig(max_retries=0))
-
-    Args:
-        max_retries: Maximum number of retry attempts. Set to 0 to disable retry.
-        base_delay: Initial delay in seconds before the first retry. Doubled on each
-            subsequent attempt (exponential backoff).
-        max_delay: Maximum delay in seconds between retries (caps the backoff).
+    So all this layer needs to do is prepend ``Error (status) [code]`` so
+    LLM agents and LangSmith traces have something easy to grep on.
     """
+    status = getattr(err, "status", None)
+    code = getattr(err, "code", None)
 
-    max_retries: int = Field(default=_MAX_RETRIES, ge=0, description="Maximum retry attempts (0 to disable)")
-    base_delay: float = Field(default=_BASE_DELAY, gt=0, description="Initial delay in seconds")
-    max_delay: float = Field(default=_MAX_DELAY, gt=0, description="Maximum delay in seconds")
-
-
-def _friendly_error(err: ColonyAPIError) -> str:
-    """Convert a ColonyAPIError into an agent-friendly message."""
-    code = err.code or ""
-    status = err.status
-
-    if status == 401 or "AUTH" in code:
-        return "Error: authentication failed — check your Colony API key."
-    if status == 403 or "FORBIDDEN" in code:
-        return f"Error: you don't have permission to do that. ({code or 'forbidden'})"
-    if status == 404 or "NOT_FOUND" in code:
-        return "Error: the requested resource was not found."
-    if status == 409 or "CONFLICT" in code:
-        return f"Error: conflict — {err}."
-    if status == 422 or "VALIDATION" in code:
-        return f"Error: invalid input — {err}."
-    if status == 429 or "RATE_LIMIT" in code:
-        return f"Error: rate limited — please wait before retrying. ({code or 'too many requests'})"
-
-    return f"Error: Colony API returned {status} — {err}."
-
-
-def _retry_api_call(
-    fn: Callable[..., T],
-    *args: Any,
-    _retry_config: RetryConfig | None = None,
-    **kwargs: Any,
-) -> T:
-    """Call *fn* with retry on transient failures (429, 5xx, network errors)."""
-    cfg = _retry_config or RetryConfig()
-    if cfg.max_retries == 0:
-        return fn(*args, **kwargs)
-    last_exc: BaseException | None = None
-    for attempt in range(cfg.max_retries):
-        try:
-            return fn(*args, **kwargs)
-        except ColonyAPIError as exc:
-            last_exc = exc
-            if exc.status not in _RETRYABLE_STATUSES:
-                raise
-            delay = min(cfg.base_delay * (2**attempt), cfg.max_delay)
-            logger.info(
-                "Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, cfg.max_retries, delay
-            )
-            time.sleep(delay)
-        except (URLError, TimeoutError, ConnectionError, OSError) as exc:
-            last_exc = exc
-            delay = min(cfg.base_delay * (2**attempt), cfg.max_delay)
-            logger.info(
-                "Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, cfg.max_retries, delay, exc
-            )
-            time.sleep(delay)
-    raise last_exc  # type: ignore[misc]
-
-
-async def _async_retry_api_call(
-    fn: Callable[..., T],
-    *args: Any,
-    _retry_config: RetryConfig | None = None,
-    **kwargs: Any,
-) -> T:
-    """Async version: runs *fn* in a thread with retry on transient failures."""
-    cfg = _retry_config or RetryConfig()
-    if cfg.max_retries == 0:
-        return await asyncio.to_thread(fn, *args, **kwargs)
-    last_exc: BaseException | None = None
-    for attempt in range(cfg.max_retries):
-        try:
-            return await asyncio.to_thread(fn, *args, **kwargs)
-        except ColonyAPIError as exc:
-            last_exc = exc
-            if exc.status not in _RETRYABLE_STATUSES:
-                raise
-            delay = min(cfg.base_delay * (2**attempt), cfg.max_delay)
-            logger.info(
-                "Colony API %s (attempt %d/%d), retrying in %.1fs", exc.status, attempt + 1, cfg.max_retries, delay
-            )
-            await asyncio.sleep(delay)
-        except (URLError, TimeoutError, ConnectionError, OSError) as exc:
-            last_exc = exc
-            delay = min(cfg.base_delay * (2**attempt), cfg.max_delay)
-            logger.info(
-                "Network error (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, cfg.max_retries, delay, exc
-            )
-            await asyncio.sleep(delay)
-    raise last_exc  # type: ignore[misc]
+    parts = ["Error"]
+    if status:  # 0 means "no HTTP response" (network error) — skip
+        parts.append(f"({status})")
+    if code:
+        parts.append(f"[{code}]")
+    parts.append(f"— {err}")
+    return " ".join(parts)
 
 
 def _format_posts(data: dict) -> str:
@@ -234,29 +140,47 @@ class GetNotificationsInput(BaseModel):
 
 
 class _ColonyBaseTool(BaseTool):
-    """Base class that holds a shared ColonyClient and provides error handling + retry."""
+    """Base class that holds a shared ``ColonyClient`` and catches errors at the tool boundary.
+
+    Retries (429, 502, 503, 504, with exponential backoff and ``Retry-After``
+    handling) are now performed inside the SDK client itself — see
+    ``ColonyClient(retry=...)``. This wrapper just catches whatever the SDK
+    ultimately raises and formats it as an LLM-friendly string.
+    """
 
     model_config = {"arbitrary_types_allowed": True}
 
     client: Any = Field(exclude=True)
-    retry_config: RetryConfig = Field(default_factory=RetryConfig, exclude=True)
 
     # Default metadata for LangSmith tracing — overridden per tool
     metadata: dict[str, Any] = {"provider": "thecolony.cc"}
     tags: list[str] = ["colony"]
 
     def _api(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
-        """Call a Colony SDK method with retry and friendly error handling."""
+        """Call a Colony SDK method, format any errors as LLM-friendly strings."""
         try:
-            return _retry_api_call(fn, *args, _retry_config=self.retry_config, **kwargs)
+            return fn(*args, **kwargs)
         except ColonyAPIError as exc:
+            return _friendly_error(exc)  # type: ignore[return-value]
+        except Exception as exc:
+            # Last-resort safety net for the tool boundary — anything that
+            # escapes the SDK's typed-error layer still gets formatted instead
+            # of crashing the agent run.
             return _friendly_error(exc)  # type: ignore[return-value]
 
     async def _aapi(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
-        """Async version of _api."""
+        """Async version of ``_api``.
+
+        For now, runs the sync SDK call in a thread so the event loop isn't
+        blocked. PR2 will replace this shim with a native ``AsyncColonyClient``
+        dispatcher (await coroutine functions natively, fall back to
+        ``to_thread`` for sync clients).
+        """
         try:
-            return await _async_retry_api_call(fn, *args, _retry_config=self.retry_config, **kwargs)
+            return await asyncio.to_thread(fn, *args, **kwargs)
         except ColonyAPIError as exc:
+            return _friendly_error(exc)  # type: ignore[return-value]
+        except Exception as exc:
             return _friendly_error(exc)  # type: ignore[return-value]
 
 

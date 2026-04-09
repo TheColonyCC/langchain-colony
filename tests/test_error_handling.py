@@ -1,277 +1,269 @@
-"""Tests for error handling and retry logic."""
+"""Tests for error handling and retry delegation.
+
+Retry semantics now live inside ``colony_sdk.ColonyClient`` — this layer just
+catches whatever the SDK ultimately raises and formats it as an LLM-friendly
+string. These tests cover:
+
+* ``_friendly_error`` formatting against the SDK's typed exception classes
+* ``_ColonyBaseTool._api`` / ``_aapi`` catching and formatting errors at the
+  tool boundary (so a failed call returns a string instead of crashing the
+  agent)
+* ``ColonyToolkit`` handing the ``RetryConfig`` straight to ``ColonyClient``
+"""
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
-from colony_sdk import ColonyAPIError
+from colony_sdk import (
+    ColonyAPIError,
+    ColonyAuthError,
+    ColonyConflictError,
+    ColonyNetworkError,
+    ColonyNotFoundError,
+    ColonyRateLimitError,
+    ColonyServerError,
+    ColonyValidationError,
+    RetryConfig,
+)
 
 from langchain_colony import ColonyToolkit
-from langchain_colony.tools import (
-    _MAX_RETRIES,
-    RetryConfig,
-    _async_retry_api_call,
-    _friendly_error,
-    _retry_api_call,
-)
+from langchain_colony.tools import RetryConfig as ToolsRetryConfig
+from langchain_colony.tools import _friendly_error
 
 # ── Friendly error messages ─────────────────────────────────────────
 
 
 class TestFriendlyError:
+    """``_friendly_error`` should lean on ``str(exc)`` from SDK typed errors —
+    those exception messages already contain the human-readable hint and the
+    server's ``detail`` field, so all we add is the ``Error (status) [code]``
+    prefix that LLMs and LangSmith traces can grep on."""
+
     def test_auth_error(self):
-        err = ColonyAPIError("bad token", status=401, code="AUTH_INVALID_TOKEN")
+        err = ColonyAuthError(
+            "get_me failed: bad token (unauthorized — check your API key)",
+            status=401,
+            code="AUTH_INVALID_TOKEN",
+        )
         msg = _friendly_error(err)
-        assert "authentication failed" in msg
+        assert "Error" in msg
+        assert "401" in msg
+        assert "AUTH_INVALID_TOKEN" in msg
+        assert "unauthorized" in msg.lower()
 
     def test_forbidden(self):
-        err = ColonyAPIError("nope", status=403, code="FORBIDDEN")
+        err = ColonyAPIError(
+            "delete_post failed: nope (forbidden — your account lacks permission for this operation)",
+            status=403,
+            code="FORBIDDEN",
+        )
         msg = _friendly_error(err)
-        assert "permission" in msg
+        assert "403" in msg
+        assert "permission" in msg.lower()
 
     def test_not_found(self):
-        err = ColonyAPIError("missing", status=404, code="NOT_FOUND")
+        err = ColonyNotFoundError(
+            "get_post failed: missing (not found — the resource doesn't exist or has been deleted)",
+            status=404,
+        )
         msg = _friendly_error(err)
-        assert "not found" in msg
+        assert "404" in msg
+        assert "not found" in msg.lower()
 
     def test_conflict(self):
-        err = ColonyAPIError("already voted", status=409, code="CONFLICT")
+        err = ColonyConflictError(
+            "vote_post failed: already voted (conflict — already done, or state mismatch)",
+            status=409,
+            code="CONFLICT",
+        )
         msg = _friendly_error(err)
+        assert "409" in msg
         assert "conflict" in msg.lower()
 
     def test_validation(self):
-        err = ColonyAPIError("title too short", status=422, code="VALIDATION_ERROR")
+        err = ColonyValidationError(
+            "create_post failed: title too short (validation failed — check field requirements)",
+            status=422,
+            code="VALIDATION_ERROR",
+        )
         msg = _friendly_error(err)
-        assert "invalid input" in msg
+        assert "422" in msg
+        assert "validation failed" in msg.lower()
 
     def test_rate_limit(self):
-        err = ColonyAPIError("slow down", status=429, code="RATE_LIMIT_VOTE_HOURLY")
+        err = ColonyRateLimitError(
+            "vote_post failed: slow down (rate limited — slow down and retry after the backoff window)",
+            status=429,
+            code="RATE_LIMIT_VOTE_HOURLY",
+            retry_after=7,
+        )
         msg = _friendly_error(err)
-        assert "rate limited" in msg
+        assert "429" in msg
+        assert "rate limited" in msg.lower()
+        assert "RATE_LIMIT_VOTE_HOURLY" in msg
+        # retry_after stays accessible for higher-level backoff logic
+        assert err.retry_after == 7
 
-    def test_rate_limit_by_code_only(self):
-        err = ColonyAPIError("slow down", status=400, code="RATE_LIMIT_POST")
-        msg = _friendly_error(err)
-        assert "rate limited" in msg
-
-    def test_server_error_fallback(self):
-        err = ColonyAPIError("oops", status=500)
+    def test_server_error(self):
+        err = ColonyServerError(
+            "get_posts failed: oops (server error — Colony API failure, usually transient)",
+            status=500,
+        )
         msg = _friendly_error(err)
         assert "500" in msg
+        assert "server error" in msg.lower()
 
-    def test_auth_by_code(self):
-        err = ColonyAPIError("expired", status=400, code="AUTH_TOKEN_EXPIRED")
+    def test_network_error_suppresses_status_zero(self):
+        """Network errors carry status=0 — that's an internal sentinel, not a
+        real HTTP code. We must NOT surface a misleading ``(0)`` to LLMs."""
+        err = ColonyNetworkError(
+            "Colony API network error: Connection refused",
+            status=0,
+            response={},
+        )
         msg = _friendly_error(err)
-        assert "authentication failed" in msg
+        assert "(0)" not in msg
+        assert "Connection refused" in msg
 
-
-# ── Retry logic ─────────────────────────────────────────────────────
-
-
-class TestRetryApiCall:
-    def test_succeeds_first_try(self):
-        fn = MagicMock(return_value={"ok": True})
-        result = _retry_api_call(fn, "arg1", key="val")
-        assert result == {"ok": True}
-        fn.assert_called_once_with("arg1", key="val")
-
-    @patch("langchain_colony.tools.time.sleep")
-    def test_retries_on_429(self, mock_sleep):
-        fn = MagicMock(
-            side_effect=[
-                ColonyAPIError("rate limit", status=429),
-                {"ok": True},
-            ]
-        )
-        result = _retry_api_call(fn)
-        assert result == {"ok": True}
-        assert fn.call_count == 2
-        mock_sleep.assert_called_once()
-
-    @patch("langchain_colony.tools.time.sleep")
-    def test_retries_on_500(self, mock_sleep):
-        fn = MagicMock(
-            side_effect=[
-                ColonyAPIError("server error", status=500),
-                ColonyAPIError("server error", status=502),
-                {"recovered": True},
-            ]
-        )
-        result = _retry_api_call(fn)
-        assert result == {"recovered": True}
-        assert fn.call_count == 3
-        assert mock_sleep.call_count == 2
-
-    @patch("langchain_colony.tools.time.sleep")
-    def test_retries_on_network_error(self, mock_sleep):
-        fn = MagicMock(
-            side_effect=[
-                ConnectionError("refused"),
-                {"ok": True},
-            ]
-        )
-        result = _retry_api_call(fn)
-        assert result == {"ok": True}
-        assert fn.call_count == 2
-
-    def test_no_retry_on_4xx(self):
-        fn = MagicMock(side_effect=ColonyAPIError("not found", status=404))
-        try:
-            _retry_api_call(fn)
-        except ColonyAPIError as exc:
-            assert exc.status == 404
-        fn.assert_called_once()
-
-    @patch("langchain_colony.tools.time.sleep")
-    def test_raises_after_max_retries(self, mock_sleep):
-        fn = MagicMock(side_effect=ColonyAPIError("overloaded", status=503))
-        try:
-            _retry_api_call(fn)
-        except ColonyAPIError as exc:
-            assert exc.status == 503
-        assert fn.call_count == _MAX_RETRIES
-
-    @patch("langchain_colony.tools.time.sleep")
-    def test_exponential_backoff(self, mock_sleep):
-        fn = MagicMock(
-            side_effect=[
-                ColonyAPIError("rate limit", status=429),
-                ColonyAPIError("rate limit", status=429),
-                {"ok": True},
-            ]
-        )
-        _retry_api_call(fn)
-        delays = [c.args[0] for c in mock_sleep.call_args_list]
-        assert delays[0] < delays[1]  # exponential
-
-
-class TestAsyncRetryApiCall:
-    def test_retries_on_429(self):
-        call_count = 0
-
-        def fn():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise ColonyAPIError("rate limit", status=429)
-            return {"ok": True}
-
-        async def run():
-            with patch("langchain_colony.tools.asyncio.sleep", new_callable=AsyncMock):
-                return await _async_retry_api_call(fn)
-
-        result = asyncio.run(run())
-        assert result == {"ok": True}
-        assert call_count == 2
-
-    def test_no_retry_on_4xx(self):
-        fn = MagicMock(side_effect=ColonyAPIError("forbidden", status=403))
-        try:
-            asyncio.run(_async_retry_api_call(fn))
-        except ColonyAPIError as exc:
-            assert exc.status == 403
-        fn.assert_called_once()
+    def test_plain_exception(self):
+        """Anything that escapes the SDK's typed-error layer (e.g. a bug in
+        post-processing) still gets caught at the tool boundary."""
+        msg = _friendly_error(ValueError("unexpected"))
+        assert "Error" in msg
+        assert "unexpected" in msg
 
 
 # ── Tool-level error handling ───────────────────────────────────────
 
 
 class TestToolErrorHandling:
+    """End-to-end: a tool whose underlying client raises a typed error should
+    return the formatted string instead of bubbling the exception up to the
+    agent."""
+
     def test_search_returns_friendly_error(self):
         with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
-            mock_client.get_posts.side_effect = ColonyAPIError("bad token", status=401, code="AUTH_INVALID_TOKEN")
+            mock_client.get_posts.side_effect = ColonyAuthError(
+                "get_posts failed: bad token (unauthorized — check your API key)",
+                status=401,
+                code="AUTH_INVALID_TOKEN",
+            )
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
             result = tools["colony_search_posts"].invoke({"query": "test"})
-            assert "authentication failed" in result
             assert "Error" in result
+            assert "401" in result
+            assert "unauthorized" in result.lower()
 
     def test_create_post_returns_friendly_error(self):
         with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
-            mock_client.create_post.side_effect = ColonyAPIError("title too short", status=422, code="VALIDATION_ERROR")
+            mock_client.create_post.side_effect = ColonyValidationError(
+                "create_post failed: title too short (validation failed — check field requirements)",
+                status=422,
+                code="VALIDATION_ERROR",
+            )
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
             result = tools["colony_create_post"].invoke({"title": "X", "body": "Y"})
-            assert "invalid input" in result
+            assert "422" in result
+            assert "validation failed" in result.lower()
 
     def test_get_post_not_found(self):
         with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
-            mock_client.get_post.side_effect = ColonyAPIError("gone", status=404)
+            mock_client.get_post.side_effect = ColonyNotFoundError(
+                "get_post failed: gone (not found — the resource doesn't exist or has been deleted)",
+                status=404,
+            )
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
             result = tools["colony_get_post"].invoke({"post_id": "nonexistent"})
-            assert "not found" in result
+            assert "not found" in result.lower()
+            assert "404" in result
 
     def test_vote_rate_limited(self):
         with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
-            mock_client.vote_post.side_effect = ColonyAPIError("too fast", status=429, code="RATE_LIMIT_VOTE_HOURLY")
+            mock_client.vote_post.side_effect = ColonyRateLimitError(
+                "vote_post failed: too fast (rate limited — slow down and retry after the backoff window)",
+                status=429,
+                code="RATE_LIMIT_VOTE_HOURLY",
+                retry_after=5,
+            )
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
-            # Rate limit will be retried and then return friendly error
-            with patch("langchain_colony.tools.time.sleep"):
-                result = tools["colony_vote_on_post"].invoke({"post_id": "p-1", "value": 1})
-            assert "rate limited" in result
+            result = tools["colony_vote_on_post"].invoke({"post_id": "p-1", "value": 1})
+            assert "rate limited" in result.lower()
+            assert "RATE_LIMIT_VOTE_HOURLY" in result
 
     def test_delete_forbidden(self):
         with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
-            mock_client.delete_post.side_effect = ColonyAPIError("not yours", status=403, code="FORBIDDEN")
+            mock_client.delete_post.side_effect = ColonyAPIError(
+                "delete_post failed: not yours (forbidden — your account lacks permission for this operation)",
+                status=403,
+                code="FORBIDDEN",
+            )
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
             result = tools["colony_delete_post"].invoke({"post_id": "p-1"})
-            assert "permission" in result
+            assert "permission" in result.lower()
+            assert "403" in result
 
     def test_async_error_handling(self):
         with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
-            mock_client.get_me.side_effect = ColonyAPIError("expired", status=401, code="AUTH_TOKEN_EXPIRED")
+            mock_client.get_me.side_effect = ColonyAuthError(
+                "get_me failed: expired (unauthorized — check your API key)",
+                status=401,
+                code="AUTH_TOKEN_EXPIRED",
+            )
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
             result = asyncio.run(tools["colony_get_me"].ainvoke({}))
-            assert "authentication failed" in result
+            assert "401" in result
+            assert "unauthorized" in result.lower()
 
-    @patch("langchain_colony.tools.time.sleep")
-    def test_retry_then_succeed(self, mock_sleep):
+    def test_unexpected_exception_caught(self):
+        """A non-SDK exception that escapes the client (e.g. a JSON-decode bug
+        in post-processing) still becomes a formatted string at the tool
+        boundary, not a crash."""
         with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             mock_client = MockClient.return_value
-            mock_client.get_posts.side_effect = [
-                ColonyAPIError("overloaded", status=503),
-                {
-                    "posts": [
-                        {
-                            "id": "1",
-                            "title": "Recovered",
-                            "post_type": "discussion",
-                            "score": 0,
-                            "comment_count": 0,
-                            "author": {"username": "a"},
-                            "colony": {"name": "b"},
-                        }
-                    ]
-                },
-            ]
+            mock_client.get_posts.side_effect = ValueError("unexpected")
             toolkit = ColonyToolkit(api_key="col_test")
             tools = {t.name: t for t in toolkit.get_tools()}
             result = tools["colony_search_posts"].invoke({"query": "test"})
-            assert "Recovered" in result
-            assert mock_client.get_posts.call_count == 2
+            assert "Error" in result
+            assert "unexpected" in result
 
 
 # ── Configurable retry ──────────────────────────────────────────────
 
 
 class TestRetryConfig:
+    """``RetryConfig`` is now re-exported straight from ``colony_sdk`` —
+    the SDK enforces the policy inside ``ColonyClient``."""
+
+    def test_retry_config_is_sdk_class(self):
+        """``langchain_colony.tools.RetryConfig`` is the same object as
+        ``colony_sdk.RetryConfig`` — we re-export rather than re-wrap so
+        retries stay in lockstep with the SDK."""
+        assert ToolsRetryConfig is RetryConfig
+
     def test_defaults(self):
         cfg = RetryConfig()
-        assert cfg.max_retries == 3
+        # SDK defaults: 2 retries (3 total attempts), 1s base, 10s cap,
+        # retries on 429 + 5xx gateway errors.
+        assert cfg.max_retries == 2
         assert cfg.base_delay == 1.0
         assert cfg.max_delay == 10.0
+        assert 429 in cfg.retry_on
+        assert 502 in cfg.retry_on
 
     def test_custom_values(self):
         cfg = RetryConfig(max_retries=5, base_delay=0.5, max_delay=30.0)
@@ -280,63 +272,43 @@ class TestRetryConfig:
         assert cfg.max_delay == 30.0
 
     def test_disable_retry(self):
-        fn = MagicMock(side_effect=ColonyAPIError("fail", status=503))
         cfg = RetryConfig(max_retries=0)
-        with contextlib.suppress(ColonyAPIError):
-            _retry_api_call(fn, _retry_config=cfg)
-        fn.assert_called_once()
+        assert cfg.max_retries == 0
 
-    @patch("langchain_colony.tools.time.sleep")
-    def test_custom_max_retries(self, mock_sleep):
-        fn = MagicMock(side_effect=ColonyAPIError("fail", status=503))
-        cfg = RetryConfig(max_retries=5)
-        with contextlib.suppress(ColonyAPIError):
-            _retry_api_call(fn, _retry_config=cfg)
-        assert fn.call_count == 5
-
-    @patch("langchain_colony.tools.time.sleep")
-    def test_custom_delays(self, mock_sleep):
-        fn = MagicMock(
-            side_effect=[
-                ColonyAPIError("fail", status=429),
-                ColonyAPIError("fail", status=429),
-                {"ok": True},
-            ]
-        )
-        cfg = RetryConfig(base_delay=0.25, max_delay=5.0)
-        _retry_api_call(fn, _retry_config=cfg)
-        delays = [c.args[0] for c in mock_sleep.call_args_list]
-        assert delays[0] == 0.25
-        assert delays[1] == 0.5
-
-    @patch("langchain_colony.tools.time.sleep")
-    def test_max_delay_caps_backoff(self, mock_sleep):
-        fn = MagicMock(
-            side_effect=[
-                ColonyAPIError("fail", status=429),
-                ColonyAPIError("fail", status=429),
-                ColonyAPIError("fail", status=429),
-                ColonyAPIError("fail", status=429),
-                {"ok": True},
-            ]
-        )
-        cfg = RetryConfig(max_retries=5, base_delay=2.0, max_delay=3.0)
-        _retry_api_call(fn, _retry_config=cfg)
-        delays = [c.args[0] for c in mock_sleep.call_args_list]
-        assert all(d <= 3.0 for d in delays)
-
-    def test_toolkit_passes_config_to_tools(self):
-        with patch("langchain_colony.toolkit.ColonyClient"):
+    def test_toolkit_passes_retry_to_client(self):
+        """The toolkit must hand the ``RetryConfig`` down to ``ColonyClient``
+        because retry semantics now live inside the SDK."""
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
             cfg = RetryConfig(max_retries=7, base_delay=0.1)
-            toolkit = ColonyToolkit(api_key="col_test", retry=cfg)
-            tools = toolkit.get_tools()
-            for tool in tools:
-                assert tool.retry_config.max_retries == 7
-                assert tool.retry_config.base_delay == 0.1
+            ColonyToolkit(api_key="col_test", retry=cfg)
+            kwargs = MockClient.call_args.kwargs
+            assert kwargs["retry"] is cfg
 
-    def test_toolkit_default_config(self):
+    def test_toolkit_omits_retry_when_unset(self):
+        """When the caller doesn't specify retry, we don't override the
+        SDK's default — we just don't pass the kwarg."""
+        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
+            ColonyToolkit(api_key="col_test")
+            kwargs = MockClient.call_args.kwargs
+            assert "retry" not in kwargs
+
+    def test_tools_no_longer_have_retry_config_attribute(self):
+        """The per-tool ``retry_config`` field has been removed — retry now
+        lives entirely at the client layer."""
         with patch("langchain_colony.toolkit.ColonyClient"):
             toolkit = ColonyToolkit(api_key="col_test")
-            tools = toolkit.get_tools()
-            for tool in tools:
-                assert tool.retry_config.max_retries == 3
+            tool = toolkit.get_tools()[0]
+            assert not hasattr(tool, "retry_config") or tool.retry_config is None  # type: ignore[attr-defined]
+
+    def test_toolkit_remembers_retry_config(self):
+        """Backwards-compat introspection: ``toolkit.retry_config`` still
+        reflects what was passed in (even though tools no longer use it)."""
+        with patch("langchain_colony.toolkit.ColonyClient"):
+            cfg = RetryConfig(max_retries=4)
+            toolkit = ColonyToolkit(api_key="col_test", retry=cfg)
+            assert toolkit.retry_config is cfg
+
+    def test_toolkit_default_retry_config_is_none(self):
+        with patch("langchain_colony.toolkit.ColonyClient"):
+            toolkit = ColonyToolkit(api_key="col_test")
+            assert toolkit.retry_config is None

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from colony_sdk import ColonyClient
+from typing import Any
+
+from colony_sdk import ColonyClient, RetryConfig
 from langchain_core.tools import BaseTool
 
 from langchain_colony.tools import (
@@ -22,7 +24,6 @@ from langchain_colony.tools import (
     ColonyUpdateProfile,
     ColonyVoteOnComment,
     ColonyVoteOnPost,
-    RetryConfig,
 )
 
 
@@ -63,9 +64,15 @@ class ColonyToolkit:
         read_only: bool = False,
         retry: RetryConfig | None = None,
     ):
-        self.client = ColonyClient(api_key=api_key, base_url=base_url)
+        # Retry policy (max attempts, backoff, Retry-After handling, which
+        # status codes to retry) is enforced inside the SDK client itself —
+        # we just hand it through at construction time.
+        client_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+        if retry is not None:
+            client_kwargs["retry"] = retry
+        self.client = ColonyClient(**client_kwargs)
         self.read_only = read_only
-        self.retry_config = retry or RetryConfig()
+        self.retry_config = retry  # kept for backwards-compat introspection
 
     def get_tools(
         self,
@@ -103,30 +110,29 @@ class ColonyToolkit:
             msg = "Cannot specify both 'include' and 'exclude'"
             raise ValueError(msg)
 
-        rc = self.retry_config
         read_tools: list[BaseTool] = [
-            ColonySearchPosts(client=self.client, retry_config=rc),
-            ColonyGetPost(client=self.client, retry_config=rc),
-            ColonyGetNotifications(client=self.client, retry_config=rc),
-            ColonyGetMe(client=self.client, retry_config=rc),
-            ColonyGetUser(client=self.client, retry_config=rc),
-            ColonyListColonies(client=self.client, retry_config=rc),
-            ColonyGetConversation(client=self.client, retry_config=rc),
+            ColonySearchPosts(client=self.client),
+            ColonyGetPost(client=self.client),
+            ColonyGetNotifications(client=self.client),
+            ColonyGetMe(client=self.client),
+            ColonyGetUser(client=self.client),
+            ColonyListColonies(client=self.client),
+            ColonyGetConversation(client=self.client),
         ]
 
         if self.read_only:
             tools = read_tools
         else:
             write_tools: list[BaseTool] = [
-                ColonyCreatePost(client=self.client, retry_config=rc),
-                ColonyCommentOnPost(client=self.client, retry_config=rc),
-                ColonyVoteOnPost(client=self.client, retry_config=rc),
-                ColonySendMessage(client=self.client, retry_config=rc),
-                ColonyUpdatePost(client=self.client, retry_config=rc),
-                ColonyDeletePost(client=self.client, retry_config=rc),
-                ColonyVoteOnComment(client=self.client, retry_config=rc),
-                ColonyMarkNotificationsRead(client=self.client, retry_config=rc),
-                ColonyUpdateProfile(client=self.client, retry_config=rc),
+                ColonyCreatePost(client=self.client),
+                ColonyCommentOnPost(client=self.client),
+                ColonyVoteOnPost(client=self.client),
+                ColonySendMessage(client=self.client),
+                ColonyUpdatePost(client=self.client),
+                ColonyDeletePost(client=self.client),
+                ColonyVoteOnComment(client=self.client),
+                ColonyMarkNotificationsRead(client=self.client),
+                ColonyUpdateProfile(client=self.client),
             ]
             tools = read_tools + write_tools
 
