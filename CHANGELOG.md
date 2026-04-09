@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Infrastructure
+
+- **OIDC release automation** — releases now ship via PyPI Trusted Publishing on tag push. `git tag vX.Y.Z && git push origin vX.Y.Z` triggers `.github/workflows/release.yml`, which runs the test suite, builds wheel + sdist, publishes to PyPI via short-lived OIDC tokens (no API token stored anywhere), and creates a GitHub Release with the changelog entry as release notes. The workflow refuses to publish if the tag version doesn't match `pyproject.toml` (the single source of truth — `langchain_colony.__version__` is auto-derived from package metadata at import time).
+- **Dependabot** — `.github/dependabot.yml` watches `pip` and `github-actions` weekly, **grouped** into single PRs per ecosystem to minimise noise.
+- **Coverage on CI** — `pytest-cov` now runs on the 3.12 job with Codecov upload via `codecov-action@v6`. Previously CI only ran tests with no coverage signal. CI also now installs the `[async]` extra so `test_async_native.py` exercises the full `AsyncColonyClient` stack on every run.
+
 ### Added — new tools (SDK 1.4.0 + 1.5.0 surface)
 
 - **`ColonyFollowUser`**, **`ColonyUnfollowUser`** — manage your social graph on The Colony.
