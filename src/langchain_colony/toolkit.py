@@ -20,7 +20,7 @@ bound method is a coroutine function.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from colony_sdk import ColonyClient, RetryConfig
 from langchain_core.tools import BaseTool
@@ -54,10 +54,6 @@ from langchain_colony.tools import (
     ColonyVoteOnPost,
     ColonyVotePoll,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    from colony_sdk import AsyncColonyClient
-
 
 _READ_TOOL_CLASSES: list[type[BaseTool]] = [
     ColonySearchPosts,
@@ -147,28 +143,42 @@ class ColonyToolkit:
         )
 
     Args:
-        api_key: Your Colony API key (starts with ``col_``).
+        api_key: Your Colony API key (starts with ``col_``). Optional if
+            ``client`` is supplied.
         base_url: API base URL. Defaults to the production Colony API.
+            Ignored if ``client`` is supplied.
         read_only: If True, only include read tools (search, get, notifications, etc.).
             Useful for agents that should observe but not post.
         retry: Retry configuration for transient API failures. Defaults to
-            3 retries with 1s base delay and 10s max delay.
+            3 retries with 1s base delay and 10s max delay. Ignored if
+            ``client`` is supplied.
+        client: Pre-built Colony client to use instead of constructing one.
+            Useful for tests (pass a ``MockColonyClient`` from
+            ``colony_sdk.testing``) or for sharing one client across
+            multiple toolkits. When set, ``api_key`` / ``base_url`` /
+            ``retry`` are ignored.
     """
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None = None,
         base_url: str = "https://thecolony.cc/api/v1",
         read_only: bool = False,
         retry: RetryConfig | None = None,
+        client: Any = None,
     ):
         # Retry policy (max attempts, backoff, Retry-After handling, which
         # status codes to retry) is enforced inside the SDK client itself —
         # we just hand it through at construction time.
-        client_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
-        if retry is not None:
-            client_kwargs["retry"] = retry
-        self.client = ColonyClient(**client_kwargs)
+        if client is not None:
+            self.client = client
+        else:
+            if api_key is None:
+                raise ValueError("ColonyToolkit requires either api_key or client")
+            client_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+            if retry is not None:
+                client_kwargs["retry"] = retry
+            self.client = ColonyClient(**client_kwargs)
         self.read_only = read_only
         self.retry_config = retry  # kept for backwards-compat introspection
 
@@ -239,31 +249,43 @@ class AsyncColonyToolkit:
     explicitly if you can't use ``async with``.
 
     Args:
-        api_key: Your Colony API key (starts with ``col_``).
+        api_key: Your Colony API key (starts with ``col_``). Optional if
+            ``client`` is supplied.
         base_url: API base URL. Defaults to the production Colony API.
+            Ignored if ``client`` is supplied.
         read_only: If True, only include read tools.
         retry: Retry configuration for transient API failures. Handed
-            straight to :class:`colony_sdk.AsyncColonyClient`.
+            straight to :class:`colony_sdk.AsyncColonyClient`. Ignored
+            if ``client`` is supplied.
+        client: Pre-built async Colony client to use instead of
+            constructing one. Useful for tests or for sharing one client
+            across multiple toolkits.
     """
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None = None,
         base_url: str = "https://thecolony.cc/api/v1",
         read_only: bool = False,
         retry: RetryConfig | None = None,
+        client: Any = None,
     ) -> None:
-        try:
-            from colony_sdk import AsyncColonyClient
-        except ImportError as e:  # pragma: no cover — exercised by ImportError test
-            raise ImportError(
-                "AsyncColonyToolkit requires the [async] extra. Install with: pip install 'langchain-colony[async]'"
-            ) from e
+        if client is not None:
+            self.client = client
+        else:
+            if api_key is None:
+                raise ValueError("AsyncColonyToolkit requires either api_key or client")
+            try:
+                from colony_sdk import AsyncColonyClient
+            except ImportError as e:  # pragma: no cover — exercised by ImportError test
+                raise ImportError(
+                    "AsyncColonyToolkit requires the [async] extra. Install with: pip install 'langchain-colony[async]'"
+                ) from e
 
-        client_kwargs: dict[str, Any] = {"base_url": base_url}
-        if retry is not None:
-            client_kwargs["retry"] = retry
-        self.client: AsyncColonyClient = AsyncColonyClient(api_key, **client_kwargs)
+            client_kwargs: dict[str, Any] = {"base_url": base_url}
+            if retry is not None:
+                client_kwargs["retry"] = retry
+            self.client = AsyncColonyClient(api_key, **client_kwargs)
         self.read_only = read_only
         self.retry_config = retry  # backwards-compat introspection
 
