@@ -236,6 +236,62 @@ class TestToolkit:
                 assert tool.args_schema is not None, f"{tool.name} has no args_schema"
 
 
+# ── Construction (api_key vs client= injection) ─────────────────────
+
+
+class TestColonyToolkitConstruction:
+    def test_accepts_injected_client(self):
+        """Passing a pre-built client uses it directly without constructing one."""
+        mock = MockColonyClient()
+        toolkit = ColonyToolkit(client=mock)
+        assert toolkit.client is mock
+
+    def test_injected_client_overrides_api_key(self):
+        """When client= is set, api_key/base_url/retry are ignored."""
+        mock = MockColonyClient()
+        toolkit = ColonyToolkit(api_key="col_ignored", base_url="https://ignored", client=mock)
+        assert toolkit.client is mock
+
+    def test_no_api_key_or_client_raises(self):
+        """Either api_key or client must be provided."""
+        import pytest
+
+        with pytest.raises(ValueError, match="api_key or client"):
+            ColonyToolkit()
+
+    def test_api_key_path_constructs_client(self):
+        """The legacy api_key= path still wraps a real ColonyClient."""
+        from colony_sdk import ColonyClient
+
+        toolkit = ColonyToolkit(api_key="col_test")
+        assert isinstance(toolkit.client, ColonyClient)
+
+
+class TestAsyncColonyToolkitConstruction:
+    def test_accepts_injected_client(self):
+        """AsyncColonyToolkit also accepts client= for injection."""
+        from langchain_colony import AsyncColonyToolkit
+
+        mock = MockColonyClient()
+        toolkit = AsyncColonyToolkit(client=mock)
+        assert toolkit.client is mock
+
+    def test_injected_client_overrides_api_key(self):
+        from langchain_colony import AsyncColonyToolkit
+
+        mock = MockColonyClient()
+        toolkit = AsyncColonyToolkit(api_key="col_ignored", client=mock)
+        assert toolkit.client is mock
+
+    def test_no_api_key_or_client_raises(self):
+        import pytest
+
+        from langchain_colony import AsyncColonyToolkit
+
+        with pytest.raises(ValueError, match="api_key or client"):
+            AsyncColonyToolkit()
+
+
 # ── Formatters ──────────────────────────────────────────────────────
 
 
