@@ -1,9 +1,17 @@
-"""Tests for the Colony LangChain toolkit."""
+"""Tests for the Colony LangChain toolkit.
+
+These tests inject a :class:`colony_sdk.testing.MockColonyClient` via
+``ColonyToolkit(client=...)`` instead of patching ``ColonyClient`` at
+import time. The mock records every method call (including kwargs) on
+``mock.calls`` so assertions stay simple.
+"""
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from typing import Any
+
+from colony_sdk.testing import MockColonyClient
 
 from langchain_colony import ColonyToolkit
 from langchain_colony.tools import (
@@ -16,15 +24,31 @@ from langchain_colony.tools import (
 )
 
 
-def _make_toolkit(**kwargs):
-    with patch("langchain_colony.toolkit.ColonyClient"):
-        return ColonyToolkit(api_key="col_test", **kwargs)
+def _make_toolkit(**kwargs: Any) -> ColonyToolkit:
+    """Build a toolkit backed by a default MockColonyClient.
+
+    Use this when the test only cares about the toolkit's tool registry
+    (names, schemas, tags, etc.) and doesn't actually invoke any tool.
+    """
+    return ColonyToolkit(client=MockColonyClient(), **kwargs)
 
 
-def _tools_by_name():
-    with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-        toolkit = ColonyToolkit(api_key="col_test")
-        return {t.name: t for t in toolkit.get_tools()}, MockClient.return_value
+def _toolkit_with(responses: dict[str, Any], **kwargs: Any) -> tuple[ColonyToolkit, MockColonyClient]:
+    """Build a toolkit + a configured MockColonyClient and return both.
+
+    Pass a ``responses`` dict mapping method names to canned responses
+    (mirrors :class:`MockColonyClient`'s ``responses=`` argument).
+    Returns ``(toolkit, mock_client)`` so the test can both invoke tools
+    and inspect ``mock_client.calls`` for call assertions.
+    """
+    mock = MockColonyClient(responses=responses)
+    return ColonyToolkit(client=mock, **kwargs), mock
+
+
+def _tools_by_name() -> tuple[dict[str, Any], MockColonyClient]:
+    mock = MockColonyClient()
+    toolkit = ColonyToolkit(client=mock)
+    return {t.name: t for t in toolkit.get_tools()}, mock
 
 
 # ── Toolkit ─────────────────────────────────────────────────────────
@@ -395,289 +419,252 @@ class TestFormatNotifications:
 
 class TestSearchPosts:
     def test_formats_results(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_posts.return_value = {
-                "posts": [
-                    {
-                        "id": "abc-123",
-                        "title": "Test Post",
-                        "post_type": "discussion",
-                        "score": 5,
-                        "comment_count": 2,
-                        "author": {"username": "test-agent"},
-                        "colony": {"name": "general"},
-                    }
-                ]
+        toolkit, _ = _toolkit_with(
+            {
+                "get_posts": {
+                    "posts": [
+                        {
+                            "id": "abc-123",
+                            "title": "Test Post",
+                            "post_type": "discussion",
+                            "score": 5,
+                            "comment_count": 2,
+                            "author": {"username": "test-agent"},
+                            "colony": {"name": "general"},
+                        }
+                    ]
+                }
             }
-            toolkit = ColonyToolkit(api_key="col_test")
-            tool = toolkit.get_tools()[0]
-            assert tool.name == "colony_search_posts"
+        )
+        tool = toolkit.get_tools()[0]
+        assert tool.name == "colony_search_posts"
 
-            result = tool.invoke({"query": "test"})
-            assert "Test Post" in result
-            assert "test-agent" in result
+        result = tool.invoke({"query": "test"})
+        assert "Test Post" in result
+        assert "test-agent" in result
 
     def test_no_results(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_posts.return_value = {"posts": []}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tool = toolkit.get_tools()[0]
-            result = tool.invoke({"query": "nonexistent"})
-            assert "No posts found" in result
+        toolkit, _ = _toolkit_with({"get_posts": {"posts": []}})
+        tool = toolkit.get_tools()[0]
+        result = tool.invoke({"query": "nonexistent"})
+        assert "No posts found" in result
 
     def test_passes_all_params(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_posts.return_value = {"posts": []}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tool = toolkit.get_tools()[0]
-            tool.invoke({"query": "ai", "colony": "findings", "sort": "top", "limit": 5})
-            mock_client.get_posts.assert_called_once_with(search="ai", colony="findings", sort="top", limit=5)
+        toolkit, mock = _toolkit_with({"get_posts": {"posts": []}})
+        tool = toolkit.get_tools()[0]
+        tool.invoke({"query": "ai", "colony": "findings", "sort": "top", "limit": 5})
+        # MockColonyClient captures the kwargs handed to get_posts.
+        method, kwargs = mock.calls[-1]
+        assert method == "get_posts"
+        assert kwargs["colony"] == "findings"
+        assert kwargs["sort"] == "top"
+        assert kwargs["limit"] == 5
 
     def test_async_formats_results(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_posts.return_value = {
-                "posts": [
-                    {
-                        "id": "abc-123",
-                        "title": "Async Post",
-                        "post_type": "finding",
-                        "score": 3,
-                        "comment_count": 1,
-                        "author": {"username": "async-agent"},
-                        "colony": {"name": "findings"},
-                    }
-                ]
+        toolkit, _ = _toolkit_with(
+            {
+                "get_posts": {
+                    "posts": [
+                        {
+                            "id": "abc-123",
+                            "title": "Async Post",
+                            "post_type": "finding",
+                            "score": 3,
+                            "comment_count": 1,
+                            "author": {"username": "async-agent"},
+                            "colony": {"name": "findings"},
+                        }
+                    ]
+                }
             }
-            toolkit = ColonyToolkit(api_key="col_test")
-            tool = toolkit.get_tools()[0]
-            result = asyncio.run(tool.ainvoke({"query": "async"}))
-            assert "Async Post" in result
-            assert "async-agent" in result
+        )
+        tool = toolkit.get_tools()[0]
+        result = asyncio.run(tool.ainvoke({"query": "async"}))
+        assert "Async Post" in result
+        assert "async-agent" in result
 
 
 class TestGetPost:
     def test_returns_formatted_post(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_post.return_value = {
-                "post": {
-                    "title": "Deep Dive",
-                    "post_type": "analysis",
-                    "score": 12,
-                    "comment_count": 4,
-                    "author": {"username": "analyst"},
-                    "colony": {"name": "findings"},
-                    "id": "post-99",
-                    "body": "Detailed analysis here.",
-                    "comments": [
-                        {"author": {"username": "reader"}, "body": "Very insightful!"},
-                    ],
+        toolkit, _ = _toolkit_with(
+            {
+                "get_post": {
+                    "post": {
+                        "title": "Deep Dive",
+                        "post_type": "analysis",
+                        "score": 12,
+                        "comment_count": 4,
+                        "author": {"username": "analyst"},
+                        "colony": {"name": "findings"},
+                        "id": "post-99",
+                        "body": "Detailed analysis here.",
+                        "comments": [
+                            {"author": {"username": "reader"}, "body": "Very insightful!"},
+                        ],
+                    }
                 }
             }
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_get_post"].invoke({"post_id": "post-99"})
-            assert "Deep Dive" in result
-            assert "Detailed analysis here." in result
-            assert "reader" in result
-            assert "Very insightful!" in result
+        )
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_get_post"].invoke({"post_id": "post-99"})
+        assert "Deep Dive" in result
+        assert "Detailed analysis here." in result
+        assert "reader" in result
+        assert "Very insightful!" in result
 
     def test_async_returns_formatted_post(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_post.return_value = {
-                "title": "Simple",
-                "post_type": "discussion",
-                "score": 0,
-                "comment_count": 0,
-                "author": {"username": "bot"},
-                "colony": {"name": "general"},
-                "id": "p-1",
-                "body": "Hello world",
+        toolkit, _ = _toolkit_with(
+            {
+                "get_post": {
+                    "title": "Simple",
+                    "post_type": "discussion",
+                    "score": 0,
+                    "comment_count": 0,
+                    "author": {"username": "bot"},
+                    "colony": {"name": "general"},
+                    "id": "p-1",
+                    "body": "Hello world",
+                }
             }
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_get_post"].ainvoke({"post_id": "p-1"}))
-            assert "Simple" in result
-            assert "Hello world" in result
+        )
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_get_post"].ainvoke({"post_id": "p-1"}))
+        assert "Simple" in result
+        assert "Hello world" in result
 
 
 class TestCreatePost:
     def test_returns_post_id(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.create_post.return_value = {"id": "new-post-123"}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools_by_name = {t.name: t for t in toolkit.get_tools()}
-            tool = tools_by_name["colony_create_post"]
-            result = tool.invoke({"title": "Hello", "body": "World"})
-            assert "new-post-123" in result
+        toolkit, _ = _toolkit_with({"create_post": {"id": "new-post-123"}})
+        tools_by_name = {t.name: t for t in toolkit.get_tools()}
+        tool = tools_by_name["colony_create_post"]
+        result = tool.invoke({"title": "Hello", "body": "World"})
+        assert "new-post-123" in result
 
     def test_nested_post_id(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.create_post.return_value = {"post": {"id": "nested-789"}}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_create_post"].invoke({"title": "T", "body": "B"})
-            assert "nested-789" in result
+        toolkit, _ = _toolkit_with({"create_post": {"post": {"id": "nested-789"}}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_create_post"].invoke({"title": "T", "body": "B"})
+        assert "nested-789" in result
 
     def test_unknown_id_fallback(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.create_post.return_value = {"status": "ok"}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_create_post"].invoke({"title": "T", "body": "B"})
-            assert "unknown" in result
+        toolkit, _ = _toolkit_with({"create_post": {"status": "ok"}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_create_post"].invoke({"title": "T", "body": "B"})
+        assert "unknown" in result
 
     def test_passes_all_params(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.create_post.return_value = {"id": "x"}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            tools["colony_create_post"].invoke({"title": "T", "body": "B", "colony": "crypto", "post_type": "finding"})
-            mock_client.create_post.assert_called_once_with(title="T", body="B", colony="crypto", post_type="finding")
+        toolkit, mock = _toolkit_with({"create_post": {"id": "x"}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        tools["colony_create_post"].invoke({"title": "T", "body": "B", "colony": "crypto", "post_type": "finding"})
+        assert mock.calls[-1] == (
+            "create_post",
+            {"title": "T", "body": "B", "colony": "crypto", "post_type": "finding"},
+        )
 
     def test_async_returns_post_id(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.create_post.return_value = {"id": "async-post-456"}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools_by_name = {t.name: t for t in toolkit.get_tools()}
-            tool = tools_by_name["colony_create_post"]
-            result = asyncio.run(tool.ainvoke({"title": "Async", "body": "Post"}))
-            assert "async-post-456" in result
+        toolkit, _ = _toolkit_with({"create_post": {"id": "async-post-456"}})
+        tools_by_name = {t.name: t for t in toolkit.get_tools()}
+        tool = tools_by_name["colony_create_post"]
+        result = asyncio.run(tool.ainvoke({"title": "Async", "body": "Post"}))
+        assert "async-post-456" in result
 
 
 class TestCommentOnPost:
     def test_returns_comment_id(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.create_comment.return_value = {"id": "comment-1"}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_comment_on_post"].invoke({"post_id": "p-1", "body": "Nice!"})
-            assert "comment-1" in result
-            mock_client.create_comment.assert_called_once_with(post_id="p-1", body="Nice!", parent_id=None)
+        toolkit, mock = _toolkit_with({"create_comment": {"id": "comment-1"}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_comment_on_post"].invoke({"post_id": "p-1", "body": "Nice!"})
+        assert "comment-1" in result
+        assert mock.calls[-1] == ("create_comment", {"post_id": "p-1", "body": "Nice!", "parent_id": None})
 
     def test_threaded_reply(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.create_comment.return_value = {"comment": {"id": "reply-2"}}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_comment_on_post"].invoke(
-                {"post_id": "p-1", "body": "Reply", "parent_id": "comment-1"}
-            )
-            assert "reply-2" in result
-            mock_client.create_comment.assert_called_once_with(post_id="p-1", body="Reply", parent_id="comment-1")
+        toolkit, mock = _toolkit_with({"create_comment": {"comment": {"id": "reply-2"}}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_comment_on_post"].invoke({"post_id": "p-1", "body": "Reply", "parent_id": "comment-1"})
+        assert "reply-2" in result
+        assert mock.calls[-1] == ("create_comment", {"post_id": "p-1", "body": "Reply", "parent_id": "comment-1"})
 
     def test_async_returns_comment_id(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.create_comment.return_value = {"id": "async-c"}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_comment_on_post"].ainvoke({"post_id": "p-1", "body": "Async!"}))
-            assert "async-c" in result
+        toolkit, _ = _toolkit_with({"create_comment": {"id": "async-c"}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_comment_on_post"].ainvoke({"post_id": "p-1", "body": "Async!"}))
+        assert "async-c" in result
 
 
 class TestVoteOnPost:
     def test_upvote(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.vote_post.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools_by_name = {t.name: t for t in toolkit.get_tools()}
-            tool = tools_by_name["colony_vote_on_post"]
-            result = tool.invoke({"post_id": "abc-123", "value": 1})
-            assert "Upvoted" in result
+        toolkit, _ = _toolkit_with({"vote_post": {}})
+        tools_by_name = {t.name: t for t in toolkit.get_tools()}
+        tool = tools_by_name["colony_vote_on_post"]
+        result = tool.invoke({"post_id": "abc-123", "value": 1})
+        assert "Upvoted" in result
 
     def test_downvote(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.vote_post.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools_by_name = {t.name: t for t in toolkit.get_tools()}
-            tool = tools_by_name["colony_vote_on_post"]
-            result = tool.invoke({"post_id": "abc-123", "value": -1})
-            assert "Downvoted" in result
+        toolkit, _ = _toolkit_with({"vote_post": {}})
+        tools_by_name = {t.name: t for t in toolkit.get_tools()}
+        tool = tools_by_name["colony_vote_on_post"]
+        result = tool.invoke({"post_id": "abc-123", "value": -1})
+        assert "Downvoted" in result
 
     def test_async_upvote(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.vote_post.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools_by_name = {t.name: t for t in toolkit.get_tools()}
-            tool = tools_by_name["colony_vote_on_post"]
-            result = asyncio.run(tool.ainvoke({"post_id": "abc-123", "value": 1}))
-            assert "Upvoted" in result
+        toolkit, _ = _toolkit_with({"vote_post": {}})
+        tools_by_name = {t.name: t for t in toolkit.get_tools()}
+        tool = tools_by_name["colony_vote_on_post"]
+        result = asyncio.run(tool.ainvoke({"post_id": "abc-123", "value": 1}))
+        assert "Upvoted" in result
 
 
 class TestSendMessage:
     def test_sends_message(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.send_message.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_send_message"].invoke({"username": "agent-b", "body": "Hello!"})
-            assert "agent-b" in result
-            mock_client.send_message.assert_called_once_with(username="agent-b", body="Hello!")
+        toolkit, mock = _toolkit_with({"send_message": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_send_message"].invoke({"username": "agent-b", "body": "Hello!"})
+        assert "agent-b" in result
+        assert mock.calls[-1] == ("send_message", {"username": "agent-b", "body": "Hello!"})
 
     def test_async_sends_message(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.send_message.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_send_message"].ainvoke({"username": "bot-z", "body": "Hi"}))
-            assert "bot-z" in result
+        toolkit, _ = _toolkit_with({"send_message": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_send_message"].ainvoke({"username": "bot-z", "body": "Hi"}))
+        assert "bot-z" in result
 
 
 class TestGetNotifications:
     def test_no_notifications(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_notifications.return_value = {"notifications": []}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools_by_name = {t.name: t for t in toolkit.get_tools()}
-            tool = tools_by_name["colony_get_notifications"]
-            result = tool.invoke({"unread_only": True})
-            assert "No notifications" in result
+        toolkit, _ = _toolkit_with({"get_notifications": {"notifications": []}})
+        tools_by_name = {t.name: t for t in toolkit.get_tools()}
+        tool = tools_by_name["colony_get_notifications"]
+        result = tool.invoke({"unread_only": True})
+        assert "No notifications" in result
 
     def test_with_notifications(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_notifications.return_value = {
-                "notifications": [
-                    {"type": "reply", "actor": {"username": "responder"}, "preview": "Good point"},
-                    {"type": "dm", "actor": {"username": "friend"}, "body": "Hey there"},
-                ]
+        toolkit, mock = _toolkit_with(
+            {
+                "get_notifications": {
+                    "notifications": [
+                        {"type": "reply", "actor": {"username": "responder"}, "preview": "Good point"},
+                        {"type": "dm", "actor": {"username": "friend"}, "body": "Hey there"},
+                    ]
+                }
             }
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_get_notifications"].invoke({"unread_only": False})
-            assert "responder" in result
-            assert "Good point" in result
-            assert "Hey there" in result
-            mock_client.get_notifications.assert_called_once_with(unread_only=False)
+        )
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_get_notifications"].invoke({"unread_only": False})
+        assert "responder" in result
+        assert "Good point" in result
+        assert "Hey there" in result
+        # Toolkit defaults to limit=50; check method + the params we care about.
+        method, kwargs = mock.calls[-1]
+        assert method == "get_notifications"
+        assert kwargs["unread_only"] is False
 
     def test_async_no_notifications(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_notifications.return_value = {"notifications": []}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools_by_name = {t.name: t for t in toolkit.get_tools()}
-            tool = tools_by_name["colony_get_notifications"]
-            result = asyncio.run(tool.ainvoke({"unread_only": True}))
-            assert "No notifications" in result
+        toolkit, _ = _toolkit_with({"get_notifications": {"notifications": []}})
+        tools_by_name = {t.name: t for t in toolkit.get_tools()}
+        tool = tools_by_name["colony_get_notifications"]
+        result = asyncio.run(tool.ainvoke({"unread_only": True}))
+        assert "No notifications" in result
 
 
 # ── New formatter tests ─────────────────────────────────────────────
@@ -769,241 +756,192 @@ class TestFormatConversation:
 
 class TestGetMe:
     def test_returns_profile(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_me.return_value = {
-                "username": "my-agent",
-                "display_name": "My Agent",
-                "bio": "I do things",
-                "post_count": 5,
-                "comment_count": 10,
-                "score": 15,
+        toolkit, _ = _toolkit_with(
+            {
+                "get_me": {
+                    "username": "my-agent",
+                    "display_name": "My Agent",
+                    "bio": "I do things",
+                    "post_count": 5,
+                    "comment_count": 10,
+                    "score": 15,
+                }
             }
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_get_me"].invoke({})
-            assert "my-agent" in result
-            assert "I do things" in result
+        )
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_get_me"].invoke({})
+        assert "my-agent" in result
+        assert "I do things" in result
 
     def test_async_returns_profile(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_me.return_value = {"username": "async-me"}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_get_me"].ainvoke({}))
-            assert "async-me" in result
+        toolkit, _ = _toolkit_with({"get_me": {"username": "async-me"}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_get_me"].ainvoke({}))
+        assert "async-me" in result
 
 
 class TestGetUser:
     def test_returns_user(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_user.return_value = {
-                "user": {"username": "other-agent", "display_name": "Other", "bio": "Explorer"}
-            }
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_get_user"].invoke({"user_id": "other-agent"})
-            assert "other-agent" in result
-            assert "Explorer" in result
-            mock_client.get_user.assert_called_once_with("other-agent")
+        toolkit, mock = _toolkit_with(
+            {"get_user": {"user": {"username": "other-agent", "display_name": "Other", "bio": "Explorer"}}}
+        )
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_get_user"].invoke({"user_id": "other-agent"})
+        assert "other-agent" in result
+        assert "Explorer" in result
+        assert mock.calls[-1] == ("get_user", {"user_id": "other-agent"})
 
     def test_async_returns_user(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_user.return_value = {"username": "u2"}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_get_user"].ainvoke({"user_id": "u2"}))
-            assert "u2" in result
+        toolkit, _ = _toolkit_with({"get_user": {"username": "u2"}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_get_user"].ainvoke({"user_id": "u2"}))
+        assert "u2" in result
 
 
 class TestListColonies:
     def test_returns_colonies(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_colonies.return_value = {
-                "colonies": [
-                    {"name": "general", "description": "Main forum", "post_count": 200},
-                ]
+        toolkit, mock = _toolkit_with(
+            {
+                "get_colonies": {
+                    "colonies": [
+                        {"name": "general", "description": "Main forum", "post_count": 200},
+                    ]
+                }
             }
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_list_colonies"].invoke({})
-            assert "general" in result
-            assert "200 posts" in result
-            mock_client.get_colonies.assert_called_once_with(limit=50)
+        )
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_list_colonies"].invoke({})
+        assert "general" in result
+        assert "200 posts" in result
+        assert mock.calls[-1] == ("get_colonies", {"limit": 50})
 
     def test_async_returns_colonies(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_colonies.return_value = {"colonies": []}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_list_colonies"].ainvoke({"limit": 10}))
-            assert "No colonies found" in result
+        toolkit, _ = _toolkit_with({"get_colonies": {"colonies": []}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_list_colonies"].ainvoke({"limit": 10}))
+        assert "No colonies found" in result
 
 
 class TestGetConversation:
     def test_returns_messages(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_conversation.return_value = {
-                "messages": [
-                    {"sender": {"username": "me"}, "body": "Hi"},
-                    {"sender": {"username": "them"}, "body": "Hello!"},
-                ]
+        toolkit, mock = _toolkit_with(
+            {
+                "get_conversation": {
+                    "messages": [
+                        {"sender": {"username": "me"}, "body": "Hi"},
+                        {"sender": {"username": "them"}, "body": "Hello!"},
+                    ]
+                }
             }
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_get_conversation"].invoke({"username": "them"})
-            assert "me" in result
-            assert "Hello!" in result
-            mock_client.get_conversation.assert_called_once_with("them")
+        )
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_get_conversation"].invoke({"username": "them"})
+        assert "me" in result
+        assert "Hello!" in result
+        assert mock.calls[-1] == ("get_conversation", {"username": "them"})
 
     def test_async_empty_conversation(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.get_conversation.return_value = {"messages": []}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_get_conversation"].ainvoke({"username": "nobody"}))
-            assert "No messages" in result
+        toolkit, _ = _toolkit_with({"get_conversation": {"messages": []}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_get_conversation"].ainvoke({"username": "nobody"}))
+        assert "No messages" in result
 
 
 class TestUpdatePost:
     def test_updates_post(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.update_post.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_update_post"].invoke({"post_id": "p-1", "title": "New Title"})
-            assert "updated" in result.lower()
-            assert "p-1" in result
-            mock_client.update_post.assert_called_once_with(post_id="p-1", title="New Title", body=None)
+        toolkit, mock = _toolkit_with({"update_post": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_update_post"].invoke({"post_id": "p-1", "title": "New Title"})
+        assert "updated" in result.lower()
+        assert "p-1" in result
+        assert mock.calls[-1] == ("update_post", {"post_id": "p-1", "title": "New Title", "body": None})
 
     def test_async_updates_post(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.update_post.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_update_post"].ainvoke({"post_id": "p-2", "body": "Updated body"}))
-            assert "p-2" in result
+        toolkit, _ = _toolkit_with({"update_post": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_update_post"].ainvoke({"post_id": "p-2", "body": "Updated body"}))
+        assert "p-2" in result
 
 
 class TestDeletePost:
     def test_deletes_post(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.delete_post.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_delete_post"].invoke({"post_id": "p-1"})
-            assert "deleted" in result.lower()
-            assert "p-1" in result
-            mock_client.delete_post.assert_called_once_with(post_id="p-1")
+        toolkit, mock = _toolkit_with({"delete_post": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_delete_post"].invoke({"post_id": "p-1"})
+        assert "deleted" in result.lower()
+        assert "p-1" in result
+        assert mock.calls[-1] == ("delete_post", {"post_id": "p-1"})
 
     def test_async_deletes_post(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.delete_post.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_delete_post"].ainvoke({"post_id": "p-3"}))
-            assert "p-3" in result
+        toolkit, _ = _toolkit_with({"delete_post": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_delete_post"].ainvoke({"post_id": "p-3"}))
+        assert "p-3" in result
 
 
 class TestVoteOnComment:
     def test_upvote(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.vote_comment.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_vote_on_comment"].invoke({"comment_id": "c-1", "value": 1})
-            assert "Upvoted" in result
-            assert "c-1" in result
-            mock_client.vote_comment.assert_called_once_with(comment_id="c-1", value=1)
+        toolkit, mock = _toolkit_with({"vote_comment": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_vote_on_comment"].invoke({"comment_id": "c-1", "value": 1})
+        assert "Upvoted" in result
+        assert "c-1" in result
+        assert mock.calls[-1] == ("vote_comment", {"comment_id": "c-1", "value": 1})
 
     def test_downvote(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.vote_comment.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_vote_on_comment"].invoke({"comment_id": "c-2", "value": -1})
-            assert "Downvoted" in result
+        toolkit, _ = _toolkit_with({"vote_comment": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_vote_on_comment"].invoke({"comment_id": "c-2", "value": -1})
+        assert "Downvoted" in result
 
     def test_async_upvote(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.vote_comment.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_vote_on_comment"].ainvoke({"comment_id": "c-3"}))
-            assert "Upvoted" in result
+        toolkit, _ = _toolkit_with({"vote_comment": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_vote_on_comment"].ainvoke({"comment_id": "c-3"}))
+        assert "Upvoted" in result
 
 
 class TestMarkNotificationsRead:
     def test_marks_read(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.mark_notifications_read.return_value = None
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_mark_notifications_read"].invoke({})
-            assert "marked as read" in result.lower()
-            mock_client.mark_notifications_read.assert_called_once()
+        toolkit, mock = _toolkit_with({})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_mark_notifications_read"].invoke({})
+        assert "marked as read" in result.lower()
+        assert mock.calls[-1] == ("mark_notifications_read", {})
 
     def test_async_marks_read(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.mark_notifications_read.return_value = None
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_mark_notifications_read"].ainvoke({}))
-            assert "marked as read" in result.lower()
+        toolkit, _ = _toolkit_with({})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_mark_notifications_read"].ainvoke({}))
+        assert "marked as read" in result.lower()
 
 
 class TestUpdateProfile:
     def test_updates_display_name(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.update_profile.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_update_profile"].invoke({"display_name": "New Name"})
-            assert "updated" in result.lower()
-            assert "display_name" in result
-            mock_client.update_profile.assert_called_once_with(display_name="New Name")
+        toolkit, mock = _toolkit_with({"update_profile": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_update_profile"].invoke({"display_name": "New Name"})
+        assert "updated" in result.lower()
+        assert "display_name" in result
+        assert mock.calls[-1] == ("update_profile", {"display_name": "New Name"})
 
     def test_updates_both_fields(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.update_profile.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_update_profile"].invoke({"display_name": "X", "bio": "New bio"})
-            assert "display_name" in result
-            assert "bio" in result
+        toolkit, _ = _toolkit_with({"update_profile": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_update_profile"].invoke({"display_name": "X", "bio": "New bio"})
+        assert "display_name" in result
+        assert "bio" in result
 
     def test_no_fields_provided(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = tools["colony_update_profile"].invoke({})
-            assert "No fields" in result
-            mock_client.update_profile.assert_not_called()
+        toolkit, mock = _toolkit_with({})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_update_profile"].invoke({})
+        assert "No fields" in result
+        # update_profile should NOT have been called.
+        assert all(call[0] != "update_profile" for call in mock.calls)
 
     def test_async_updates_profile(self):
-        with patch("langchain_colony.toolkit.ColonyClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.update_profile.return_value = {}
-            toolkit = ColonyToolkit(api_key="col_test")
-            tools = {t.name: t for t in toolkit.get_tools()}
-            result = asyncio.run(tools["colony_update_profile"].ainvoke({"bio": "Async bio"}))
-            assert "bio" in result
+        toolkit, _ = _toolkit_with({"update_profile": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = asyncio.run(tools["colony_update_profile"].ainvoke({"bio": "Async bio"}))
+        assert "bio" in result

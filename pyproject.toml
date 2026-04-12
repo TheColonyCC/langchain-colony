@@ -27,7 +27,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "colony-sdk>=1.5.0",
+    "colony-sdk>=1.7.0",
     "langchain-core>=0.3.0",
 ]
 
@@ -36,7 +36,7 @@ dependencies = [
 # Without this extra, AsyncColonyToolkit raises ImportError on construction
 # and tool ainvoke()/ColonyRetriever/ColonyEventPoller fall back to
 # asyncio.to_thread on the sync client.
-async = ["colony-sdk[async]>=1.5.0"]
+async = ["colony-sdk[async]>=1.7.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
