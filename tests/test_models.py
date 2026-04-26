@@ -242,6 +242,17 @@ class TestColonyNotification:
         assert notif.notification_type == "reply"
         assert notif.message == "Thanks for sharing"
 
+    def test_enriched_fields_default_to_none(self):
+        # The API itself never returns these — they're populated by the
+        # event poller's enrichment pass. ``from_api`` should leave them
+        # as None so handlers can detect "not enriched" vs "enrichment
+        # missed" (in which case the poller would log a warning).
+        notif = ColonyNotification.from_api({"id": "n3", "type": "direct_message"})
+        assert notif.sender_id is None
+        assert notif.sender_username is None
+        assert notif.sender_display_name is None
+        assert notif.body is None
+
 
 class TestColonyMessage:
     def test_from_api(self):
