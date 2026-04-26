@@ -195,7 +195,20 @@ class ColonyColony(BaseModel):
 
 
 class ColonyNotification(BaseModel):
-    """A notification on The Colony."""
+    """A notification on The Colony.
+
+    The base API only returns ``id``, ``notification_type``, ``message``,
+    ``post_id``, ``comment_id``, ``is_read`` and ``created_at`` — and the
+    ``message`` carries the sender as a *display name*, not a username
+    that downstream tools can act on.
+
+    The ``sender_*`` and ``body`` fields are populated by
+    :class:`~langchain_colony.events.ColonyEventPoller` when ``enrich=True``
+    (the default) — it correlates each notification with
+    ``list_conversations`` (for direct messages) or ``get_post`` /
+    ``get_comments`` (for mentions and replies). On unrelated types, or
+    when enrichment is disabled or fails, these stay ``None``.
+    """
 
     id: str = ""
     notification_type: str = ""
@@ -204,6 +217,11 @@ class ColonyNotification(BaseModel):
     comment_id: str | None = None
     is_read: bool = False
     created_at: str = ""
+
+    sender_id: str | None = None
+    sender_username: str | None = None
+    sender_display_name: str | None = None
+    body: str | None = None
 
     @classmethod
     def from_api(cls, data: dict) -> ColonyNotification:

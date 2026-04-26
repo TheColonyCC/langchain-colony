@@ -6,11 +6,35 @@ import asyncio
 import logging
 import threading
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from colony_sdk import ColonyAPIError, ColonyClient
 
 from langchain_colony.models import ColonyNotification
+
+# Tolerance window for matching a direct_message notification to a
+# conversation by ``last_message_at``. The two timestamps usually differ
+# by milliseconds; 5 minutes is generous enough to absorb clock skew or
+# a brief delay between message creation and notification fan-out
+# without admitting a stale conversation as a false match.
+_DM_MATCH_TOLERANCE_SEC = 300.0
+_ENRICH_TYPES_DM = {"direct_message", "dm"}
+_ENRICH_TYPES_COMMENT = {"mention", "reply"}
+
+
+def _parse_iso(s: str) -> datetime | None:
+    """Parse an ISO-8601 timestamp from the API. Returns ``None`` on
+    failure rather than raising; the caller falls back to skipping the
+    enrichment for that notification."""
+    if not s:
+        return None
+    try:
+        # Python 3.10's fromisoformat doesn't handle a trailing ``Z`` —
+        # 3.11+ does, but normalising keeps us compatible across both.
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
 
 logger = logging.getLogger("langchain_colony")
 
@@ -66,6 +90,15 @@ class ColonyEventPoller:
         base_url: API base URL. Defaults to the production Colony API.
         mark_read: If True, mark notifications as read after processing.
             Defaults to False.
+        enrich: If True (default), populate ``sender_id``,
+            ``sender_username``, ``sender_display_name`` and ``body`` on
+            each :class:`ColonyNotification` before dispatch. For
+            ``direct_message`` notifications this calls
+            ``list_conversations`` once per cycle and matches by
+            ``last_message_at``; for ``mention`` / ``reply`` it calls
+            ``get_post`` (cached per cycle) and ``get_comments`` to find
+            the comment author. Set ``False`` to skip the extra API
+            calls — handlers then receive only the raw API fields.
     """
 
     def __init__(
@@ -73,6 +106,7 @@ class ColonyEventPoller:
         api_key: str | None = None,
         base_url: str = "https://thecolony.cc/api/v1",
         mark_read: bool = False,
+        enrich: bool = True,
         *,
         client: Any | None = None,
     ) -> None:
@@ -83,6 +117,7 @@ class ColonyEventPoller:
             client = ColonyClient(api_key=api_key, base_url=base_url)
         self.client = client
         self.mark_read = mark_read
+        self.enrich = enrich
         self._handlers: dict[str | None, list[EventHandler]] = {}
         self._seen: set[str] = set()
         self._stop_event = threading.Event()
@@ -129,6 +164,11 @@ class ColonyEventPoller:
                 continue
             self._seen.add(notif.id)
             new_notifications.append(notif)
+
+        if self.enrich and new_notifications:
+            self._enrich_batch(new_notifications)
+
+        for notif in new_notifications:
             self._dispatch(notif)
 
         if self.mark_read and new_notifications:
@@ -163,6 +203,11 @@ class ColonyEventPoller:
                 continue
             self._seen.add(notif.id)
             new_notifications.append(notif)
+
+        if self.enrich and new_notifications:
+            await self._enrich_batch_async(new_notifications)
+
+        for notif in new_notifications:
             await self._dispatch_async(notif)
 
         if self.mark_read and new_notifications:
@@ -175,6 +220,125 @@ class ColonyEventPoller:
                 logger.warning("Failed to mark notifications read: %s", exc)
 
         return new_notifications
+
+    def _enrich_batch(self, notifications: list[ColonyNotification]) -> None:
+        """Populate ``sender_*`` and ``body`` on each notification.
+
+        Uses per-cycle caches: ``list_conversations`` is fetched lazily
+        on the first DM and reused; ``get_post`` is cached by post id.
+        Failures on a single notification are logged and skipped — they
+        never prevent dispatch.
+        """
+        conversations: Any | None = None
+        posts_cache: dict[str, dict] = {}
+        for notif in notifications:
+            try:
+                if notif.notification_type in _ENRICH_TYPES_DM:
+                    if conversations is None:
+                        conversations = self.client.list_conversations()
+                    self._populate_dm(notif, conversations)
+                elif notif.notification_type in _ENRICH_TYPES_COMMENT:
+                    self._populate_comment(notif, posts_cache)
+            except (ColonyAPIError, Exception) as exc:
+                logger.warning("Failed to enrich notification %s: %s", notif.id, exc)
+
+    async def _enrich_batch_async(self, notifications: list[ColonyNotification]) -> None:
+        """Async version of :meth:`_enrich_batch`."""
+        conversations: Any | None = None
+        posts_cache: dict[str, dict] = {}
+        for notif in notifications:
+            try:
+                if notif.notification_type in _ENRICH_TYPES_DM:
+                    if conversations is None:
+                        conversations = await self._call_async(self.client.list_conversations)
+                    self._populate_dm(notif, conversations)
+                elif notif.notification_type in _ENRICH_TYPES_COMMENT:
+                    await self._populate_comment_async(notif, posts_cache)
+            except (ColonyAPIError, Exception) as exc:
+                logger.warning("Failed to enrich notification %s: %s", notif.id, exc)
+
+    @staticmethod
+    def _populate_dm(notif: ColonyNotification, conversations: Any) -> None:
+        items = conversations if isinstance(conversations, list) else conversations.get("items", [])
+        if not items:
+            return
+        target = _parse_iso(notif.created_at)
+        if target is None:
+            return
+        best: dict | None = None
+        best_delta: float | None = None
+        for conv in items:
+            ts = _parse_iso(conv.get("last_message_at", ""))
+            if ts is None:
+                continue
+            delta = abs((target - ts).total_seconds())
+            if best_delta is None or delta < best_delta:
+                best = conv
+                best_delta = delta
+        if best is None or best_delta is None or best_delta > _DM_MATCH_TOLERANCE_SEC:
+            return
+        other = best.get("other_user") or {}
+        notif.sender_id = other.get("id") or None
+        notif.sender_username = other.get("username") or None
+        notif.sender_display_name = other.get("display_name") or None
+        notif.body = best.get("last_message_preview") or None
+
+    def _populate_comment(self, notif: ColonyNotification, posts_cache: dict[str, dict]) -> None:
+        if not notif.post_id:
+            return
+        post = posts_cache.get(notif.post_id)
+        if post is None:
+            post = self.client.get_post(notif.post_id)
+            posts_cache[notif.post_id] = post
+        if notif.comment_id:
+            comments = self.client.get_comments(notif.post_id)
+            if self._apply_comment_match(notif, comments):
+                return
+        self._apply_post_author(notif, post)
+
+    async def _populate_comment_async(
+        self, notif: ColonyNotification, posts_cache: dict[str, dict]
+    ) -> None:
+        if not notif.post_id:
+            return
+        post = posts_cache.get(notif.post_id)
+        if post is None:
+            post = await self._call_async(self.client.get_post, notif.post_id)
+            posts_cache[notif.post_id] = post
+        if notif.comment_id:
+            comments = await self._call_async(self.client.get_comments, notif.post_id)
+            if self._apply_comment_match(notif, comments):
+                return
+        self._apply_post_author(notif, post)
+
+    @staticmethod
+    def _apply_comment_match(notif: ColonyNotification, comments: Any) -> bool:
+        items = comments if isinstance(comments, list) else comments.get("items", [])
+        for c in items:
+            if c.get("id") != notif.comment_id:
+                continue
+            author = c.get("author") or {}
+            notif.sender_id = author.get("id") or None
+            notif.sender_username = author.get("username") or None
+            notif.sender_display_name = author.get("display_name") or None
+            notif.body = c.get("body") or None
+            return True
+        return False
+
+    @staticmethod
+    def _apply_post_author(notif: ColonyNotification, post: dict) -> None:
+        author = post.get("author") or {}
+        notif.sender_id = author.get("id") or None
+        notif.sender_username = author.get("username") or None
+        notif.sender_display_name = author.get("display_name") or None
+        if notif.body is None:
+            notif.body = post.get("body") or post.get("title") or None
+
+    @staticmethod
+    async def _call_async(fn: Callable, *args: Any) -> Any:
+        if asyncio.iscoroutinefunction(fn):
+            return await fn(*args)
+        return await asyncio.to_thread(fn, *args)
 
     def run(self, poll_interval: float = 30) -> None:
         """Run the poller in the foreground (blocking).
