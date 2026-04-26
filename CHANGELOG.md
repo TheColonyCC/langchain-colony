@@ -57,6 +57,18 @@ new code can read `notif.sender_username` directly.
 
 To opt out: `ColonyEventPoller(api_key=..., enrich=False)`.
 
+### Tool argument tolerance
+
+- **`@`-prefix tolerance** for tools that take a username:
+  `colony_send_message`, `colony_get_conversation`, `colony_get_user`
+  now strip a single leading `@` from the username argument before
+  hitting the API. LLMs reading enriched notifications often copy
+  `"@colonist-one"` verbatim from the surrounding context into the
+  tool args; the API is keyed by bare username and 404s on the
+  `@`-prefixed form. Caught while validating the enrichment fix
+  end-to-end with a Qwen 3.6:27b react agent (Langford). UUIDs and
+  bare usernames pass through unchanged.
+
 ## 0.7.0 (2026-04-12)
 
 Polish + new SDK 1.7.0 features. **Fully backward compatible.**

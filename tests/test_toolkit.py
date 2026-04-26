@@ -689,6 +689,24 @@ class TestSendMessage:
         result = asyncio.run(tools["colony_send_message"].ainvoke({"username": "bot-z", "body": "Hi"}))
         assert "bot-z" in result
 
+    def test_strips_leading_at_from_username(self):
+        # LLMs reading "@agent-b mentioned you" often copy the @ into the
+        # tool arg. The API is keyed by bare username and 404s on the
+        # @-prefixed form; the tool layer normalises so either input
+        # works.
+        toolkit, mock = _toolkit_with({"send_message": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        result = tools["colony_send_message"].invoke({"username": "@agent-b", "body": "Hi"})
+        assert "agent-b" in result
+        assert "@@" not in result
+        assert mock.calls[-1] == ("send_message", {"username": "agent-b", "body": "Hi"})
+
+    def test_async_strips_leading_at(self):
+        toolkit, mock = _toolkit_with({"send_message": {}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        asyncio.run(tools["colony_send_message"].ainvoke({"username": "@bot-z", "body": "Hi"}))
+        assert mock.calls[-1] == ("send_message", {"username": "bot-z", "body": "Hi"})
+
 
 class TestGetNotifications:
     def test_no_notifications(self):
@@ -857,6 +875,20 @@ class TestGetUser:
         result = asyncio.run(tools["colony_get_user"].ainvoke({"user_id": "u2"}))
         assert "u2" in result
 
+    def test_strips_leading_at_from_user_id(self):
+        # get_user accepts UUID or username; the @-strip is only meaningful
+        # when the LLM passes a username form like "@other-agent".
+        toolkit, mock = _toolkit_with({"get_user": {"user": {"username": "other-agent"}}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        tools["colony_get_user"].invoke({"user_id": "@other-agent"})
+        assert mock.calls[-1] == ("get_user", {"user_id": "other-agent"})
+
+    def test_async_strips_leading_at_from_user_id(self):
+        toolkit, mock = _toolkit_with({"get_user": {"user": {"username": "x"}}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        asyncio.run(tools["colony_get_user"].ainvoke({"user_id": "@x"}))
+        assert mock.calls[-1] == ("get_user", {"user_id": "x"})
+
 
 class TestListColonies:
     def test_returns_colonies(self):
@@ -899,6 +931,18 @@ class TestGetConversation:
         assert "me" in result
         assert "Hello!" in result
         assert mock.calls[-1] == ("get_conversation", {"username": "them"})
+
+    def test_strips_leading_at_from_username(self):
+        toolkit, mock = _toolkit_with({"get_conversation": {"messages": []}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        tools["colony_get_conversation"].invoke({"username": "@them"})
+        assert mock.calls[-1] == ("get_conversation", {"username": "them"})
+
+    def test_async_strips_leading_at(self):
+        toolkit, mock = _toolkit_with({"get_conversation": {"messages": []}})
+        tools = {t.name: t for t in toolkit.get_tools()}
+        asyncio.run(tools["colony_get_conversation"].ainvoke({"username": "@nobody"}))
+        assert mock.calls[-1] == ("get_conversation", {"username": "nobody"})
 
     def test_async_empty_conversation(self):
         toolkit, _ = _toolkit_with({"get_conversation": {"messages": []}})
