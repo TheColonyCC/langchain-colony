@@ -417,9 +417,7 @@ class TestEnrichComment:
 
     def test_mention_without_comment_id_falls_back_to_post_author(self):
         poller = _make_poller()
-        poller.client.get_notifications.return_value = [
-            _mention_notification(comment_id=None)
-        ]
+        poller.client.get_notifications.return_value = [_mention_notification(comment_id=None)]
         poller.client.get_post.return_value = _post(author_username="po")
         n = poller.poll_once()[0]
         assert n.sender_username == "po"
@@ -429,9 +427,7 @@ class TestEnrichComment:
 
     def test_mention_unmatched_comment_id_falls_back_to_post_author(self):
         poller = _make_poller()
-        poller.client.get_notifications.return_value = [
-            _mention_notification(comment_id="nope")
-        ]
+        poller.client.get_notifications.return_value = [_mention_notification(comment_id="nope")]
         poller.client.get_post.return_value = _post(author_username="po")
         poller.client.get_comments.return_value = _comment_list(comment_id="other")
         n = poller.poll_once()[0]
@@ -439,9 +435,7 @@ class TestEnrichComment:
 
     def test_reply_type_is_enriched(self):
         poller = _make_poller()
-        poller.client.get_notifications.return_value = [
-            _mention_notification(type_="reply")
-        ]
+        poller.client.get_notifications.return_value = [_mention_notification(type_="reply")]
         poller.client.get_post.return_value = _post()
         poller.client.get_comments.return_value = _comment_list()
         n = poller.poll_once()[0]
@@ -535,3 +529,78 @@ class TestEnrichAsync:
         results = asyncio.run(poller.poll_once_async())
         assert results[0].sender_username is None
         poller.client.list_conversations.assert_not_called()
+
+    def test_async_enrich_failure_does_not_break_dispatch(self):
+        # Sync path is covered above; this is the async parity case for
+        # the same exception handler.
+        poller = _make_poller()
+        received: list = []
+
+        @poller.on()
+        async def handle(notif):
+            received.append(notif)
+
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.side_effect = RuntimeError("boom")
+
+        results = asyncio.run(poller.poll_once_async())
+        assert len(received) == 1
+        assert results[0].sender_username is None
+
+    def test_async_call_dispatches_to_native_coroutine(self):
+        # When the underlying client method is a coroutine function (e.g.
+        # AsyncColonyClient), _call_async awaits it directly instead of
+        # routing through asyncio.to_thread. This is the async-native
+        # path; sync tests above only exercise the to_thread branch.
+        async def native_list_conversations():
+            return {"items": [_conversation()]}
+
+        poller = _make_poller()
+        poller.client.list_conversations = native_list_conversations
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        results = asyncio.run(poller.poll_once_async())
+        assert results[0].sender_username == "colonist-one"
+
+
+class TestEnrichDmEdgeCases:
+    def test_dm_skips_conversations_with_unparseable_timestamps(self):
+        # One conversation has a malformed last_message_at; the loop
+        # should ``continue`` past it and still match the second one.
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {
+            "items": [
+                _conversation(
+                    username="bad-stamp",
+                    last_message_at="not-a-date",
+                    preview="bad",
+                ),
+                _conversation(
+                    username="colonist-one",
+                    last_message_at=_CONV_TS_MATCH,
+                    preview="good",
+                ),
+            ]
+        }
+        n = poller.poll_once()[0]
+        assert n.sender_username == "colonist-one"
+        assert n.body == "good"
+
+
+class TestParseIso:
+    def test_empty_string_returns_none(self):
+        from langchain_colony.events import _parse_iso
+
+        assert _parse_iso("") is None
+
+    def test_z_suffix_is_normalised(self):
+        from langchain_colony.events import _parse_iso
+
+        ts = _parse_iso("2026-04-26T16:38:48Z")
+        assert ts is not None
+        assert ts.year == 2026
+
+    def test_garbage_returns_none(self):
+        from langchain_colony.events import _parse_iso
+
+        assert _parse_iso("not-a-date") is None

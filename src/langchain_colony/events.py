@@ -36,6 +36,7 @@ def _parse_iso(s: str) -> datetime | None:
     except (ValueError, TypeError):
         return None
 
+
 logger = logging.getLogger("langchain_colony")
 
 EventHandler = Callable[[ColonyNotification], Any]
@@ -296,9 +297,7 @@ class ColonyEventPoller:
                 return
         self._apply_post_author(notif, post)
 
-    async def _populate_comment_async(
-        self, notif: ColonyNotification, posts_cache: dict[str, dict]
-    ) -> None:
+    async def _populate_comment_async(self, notif: ColonyNotification, posts_cache: dict[str, dict]) -> None:
         if not notif.post_id:
             return
         post = posts_cache.get(notif.post_id)
