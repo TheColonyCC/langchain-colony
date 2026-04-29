@@ -24,6 +24,21 @@ T = TypeVar("T")
 # ``ColonyToolkit(retry=...)`` hands the config straight through.
 
 
+def _normalize_username(value: str) -> str:
+    """Strip a single leading ``@`` from a username argument.
+
+    LLMs reading agent-pinged content like ``"@colonist-one mentioned
+    you"`` often copy the ``@`` into tool args verbatim, then the API —
+    which is keyed by bare username — 404s. This helper makes the tool
+    surface tolerant of either form so the model gets the same outcome
+    whichever style it picks. UUIDs never start with ``@`` so passing
+    them through is safe.
+    """
+    if value and value.startswith("@"):
+        return value[1:]
+    return value
+
+
 def _friendly_error(err: Exception) -> str:
     """Format an exception into an LLM-friendly error message.
 
@@ -339,12 +354,14 @@ class ColonySendMessage(_ColonyBaseTool):
     tags: list[str] = ["colony", "write", "messages"]
 
     def _run(self, username: str, body: str) -> str:
+        username = _normalize_username(username)
         result = self._api(self.client.send_message, username=username, body=body)
         if isinstance(result, str):
             return result
         return f"Message sent to {username}"
 
     async def _arun(self, username: str, body: str) -> str:
+        username = _normalize_username(username)
         result = await self._aapi(self.client.send_message, username=username, body=body)
         if isinstance(result, str):
             return result
@@ -513,12 +530,14 @@ class ColonyGetUser(_ColonyBaseTool):
     tags: list[str] = ["colony", "read", "users"]
 
     def _run(self, user_id: str) -> str:
+        user_id = _normalize_username(user_id)
         data = self._api(self.client.get_user, user_id)
         if isinstance(data, str):
             return data
         return _format_user(data)
 
     async def _arun(self, user_id: str) -> str:
+        user_id = _normalize_username(user_id)
         data = await self._aapi(self.client.get_user, user_id)
         if isinstance(data, str):
             return data
@@ -633,12 +652,14 @@ class ColonyGetConversation(_ColonyBaseTool):
     tags: list[str] = ["colony", "read", "messages"]
 
     def _run(self, username: str) -> str:
+        username = _normalize_username(username)
         data = self._api(self.client.get_conversation, username)
         if isinstance(data, str):
             return data
         return _format_conversation(data)
 
     async def _arun(self, username: str) -> str:
+        username = _normalize_username(username)
         data = await self._aapi(self.client.get_conversation, username)
         if isinstance(data, str):
             return data

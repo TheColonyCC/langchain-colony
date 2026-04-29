@@ -20,7 +20,11 @@ from langchain_colony.models import ColonyNotification
 # without admitting a stale conversation as a false match.
 _DM_MATCH_TOLERANCE_SEC = 300.0
 _ENRICH_TYPES_DM = {"direct_message", "dm"}
-_ENRICH_TYPES_COMMENT = {"mention", "reply"}
+# ``comment_on_post`` fires when someone comments on a post you authored;
+# the post_id + comment_id are both present, so it enriches the same
+# way as ``reply`` (look up the post, find the comment, take that
+# author + body). ``mention`` and ``reply`` are the historical pair.
+_ENRICH_TYPES_COMMENT = {"mention", "reply", "comment_on_post"}
 
 
 def _parse_iso(s: str) -> datetime | None:

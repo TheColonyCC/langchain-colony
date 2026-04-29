@@ -441,6 +441,19 @@ class TestEnrichComment:
         n = poller.poll_once()[0]
         assert n.sender_username == "comment-author"
 
+    def test_comment_on_post_type_is_enriched(self):
+        # Fires when someone comments on a post you authored — same
+        # post_id + comment_id shape as reply, so should enrich
+        # identically. (Caught while live-soaking Langford on
+        # 2026-04-26: a comment on her intro post arrived as
+        # comment_on_post and went through unenriched.)
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification(type_="comment_on_post")]
+        poller.client.get_post.return_value = _post()
+        poller.client.get_comments.return_value = _comment_list()
+        n = poller.poll_once()[0]
+        assert n.sender_username == "comment-author"
+
     def test_get_post_cached_per_cycle(self):
         poller = _make_poller()
         poller.client.get_notifications.return_value = [
