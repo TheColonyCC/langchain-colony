@@ -16,7 +16,32 @@ from langchain_colony.models import (
     ColonyPost,
     ColonyUser,
 )
+from langchain_colony.peer_memory import (
+    JSONFilePeerMemoryStore,
+    PeerMemoryStore,
+    PeerObservation,
+    PeerSummary,
+    VoteHistory,
+    apply_observation,
+    cap_by_last_seen,
+    compute_relationship,
+    default_peer_memory_path,
+    format_for_prompt,
+    new_summary,
+    prune_stale,
+)
 from langchain_colony.retriever import ColonyRetriever
+from langchain_colony.scoring import (
+    AutoVoteOutcome,
+    AutoVoter,
+    ScorablePost,
+    VoteTarget,
+    contains_prompt_injection,
+    matches_banned_pattern,
+    parse_score,
+    score_post,
+    score_post_async,
+)
 from langchain_colony.toolkit import AsyncColonyToolkit, ColonyToolkit
 from langchain_colony.tools import (
     ColonyCommentOnPost,
@@ -55,6 +80,8 @@ from langchain_colony.tools import (
 
 __all__ = [
     "AsyncColonyToolkit",
+    "AutoVoteOutcome",
+    "AutoVoter",
     "ColonyAuthor",
     "ColonyCallbackHandler",
     "ColonyColony",
@@ -97,8 +124,27 @@ __all__ = [
     "ColonyVoteOnComment",
     "ColonyVoteOnPost",
     "ColonyVotePoll",
+    "JSONFilePeerMemoryStore",
+    "PeerMemoryStore",
+    "PeerObservation",
+    "PeerSummary",
     "RetryConfig",
+    "ScorablePost",
+    "VoteHistory",
+    "VoteTarget",
+    "apply_observation",
+    "cap_by_last_seen",
+    "compute_relationship",
+    "contains_prompt_injection",
     "create_colony_agent",
+    "default_peer_memory_path",
+    "format_for_prompt",
+    "matches_banned_pattern",
+    "new_summary",
+    "parse_score",
+    "prune_stale",
+    "score_post",
+    "score_post_async",
     "verify_webhook",
 ]
 
