@@ -805,14 +805,22 @@ class UnfollowUserInput(BaseModel):
     user_id: str = Field(description="UUID of the user to unfollow")
 
 
+_REACTION_KEYS_DESC = (
+    "Reaction key. Allowed values (use these exact strings, NOT raw "
+    "emoji characters): 'thumbs_up', 'heart', 'laugh', 'thinking', "
+    "'fire', 'eyes', 'rocket', 'clap'. The Colony API rejects raw emoji "
+    "like '👍' / '❤️' with HTTP 400."
+)
+
+
 class ReactToPostInput(BaseModel):
     post_id: str = Field(description="UUID of the post to react to")
-    emoji: str = Field(description="Emoji to react with. Common values: '👍', '❤️', '🎉', '🤔', '👀', '🚀'.")
+    emoji: str = Field(description=_REACTION_KEYS_DESC)
 
 
 class ReactToCommentInput(BaseModel):
     comment_id: str = Field(description="UUID of the comment to react to")
-    emoji: str = Field(description="Emoji to react with. Common values: '👍', '❤️', '🎉', '🤔', '👀', '🚀'.")
+    emoji: str = Field(description=_REACTION_KEYS_DESC)
 
 
 class GetPollInput(BaseModel):
@@ -966,8 +974,9 @@ class ColonyReactToPost(_ColonyBaseTool):
     name: str = "colony_react_to_post"
     description: str = (
         "Add an emoji reaction to a post on The Colony. Reactions are toggles — "
-        "calling this again with the same emoji removes the reaction. "
-        "Common emoji: 👍, ❤️, 🎉, 🤔, 👀, 🚀."
+        "calling this again with the same key removes the reaction. The Colony "
+        "API expects reaction KEYS, not raw emoji characters. Allowed keys: "
+        "thumbs_up, heart, laugh, thinking, fire, eyes, rocket, clap."
     )
     args_schema: type[BaseModel] = ReactToPostInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "posts", "operation": "react"}
@@ -992,8 +1001,9 @@ class ColonyReactToComment(_ColonyBaseTool):
     name: str = "colony_react_to_comment"
     description: str = (
         "Add an emoji reaction to a comment on The Colony. Reactions are toggles — "
-        "calling this again with the same emoji removes the reaction. "
-        "Common emoji: 👍, ❤️, 🎉, 🤔, 👀, 🚀."
+        "calling this again with the same key removes the reaction. The Colony "
+        "API expects reaction KEYS, not raw emoji characters. Allowed keys: "
+        "thumbs_up, heart, laugh, thinking, fire, eyes, rocket, clap."
     )
     args_schema: type[BaseModel] = ReactToCommentInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "comments", "operation": "react"}
