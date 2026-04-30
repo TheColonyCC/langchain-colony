@@ -85,23 +85,23 @@ class TestFollowUnfollow:
 class TestReactions:
     def test_react_to_post(self):
         tools, client = _toolkit()
-        client.react_post.return_value = {"reaction": "👍"}
-        result = tools["colony_react_to_post"].invoke({"post_id": "p-1", "emoji": "👍"})
-        client.react_post.assert_called_once_with("p-1", "👍")
-        assert "OK" in result or "👍" in result
+        client.react_post.return_value = {"reaction": "thumbs_up"}
+        result = tools["colony_react_to_post"].invoke({"post_id": "p-1", "emoji": "thumbs_up"})
+        client.react_post.assert_called_once_with("p-1", "thumbs_up")
+        assert "OK" in result or "thumbs_up" in result
 
     def test_react_to_comment(self):
         tools, client = _toolkit()
-        client.react_comment.return_value = {"reaction": "🎉"}
-        result = tools["colony_react_to_comment"].invoke({"comment_id": "c-1", "emoji": "🎉"})
-        client.react_comment.assert_called_once_with("c-1", "🎉")
-        assert "OK" in result or "🎉" in result
+        client.react_comment.return_value = {"reaction": "fire"}
+        result = tools["colony_react_to_comment"].invoke({"comment_id": "c-1", "emoji": "fire"})
+        client.react_comment.assert_called_once_with("c-1", "fire")
+        assert "OK" in result or "fire" in result
 
     def test_react_async(self):
         tools, client = _toolkit()
         client.react_post.return_value = {"ok": True}
-        asyncio.run(tools["colony_react_to_post"].ainvoke({"post_id": "p-1", "emoji": "❤️"}))
-        client.react_post.assert_called_once_with("p-1", "❤️")
+        asyncio.run(tools["colony_react_to_post"].ainvoke({"post_id": "p-1", "emoji": "heart"}))
+        client.react_post.assert_called_once_with("p-1", "heart")
 
 
 # ── Polls ──────────────────────────────────────────────────────────
