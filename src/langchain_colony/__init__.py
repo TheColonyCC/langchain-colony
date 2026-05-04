@@ -4,7 +4,7 @@ from importlib.metadata import version
 
 __version__ = version("langchain-colony")
 
-from langchain_colony.callbacks import ColonyCallbackHandler
+from langchain_colony.callbacks import ColonyCallbackHandler, FinishReasonCallback
 from langchain_colony.events import ColonyEventPoller
 from langchain_colony.models import (
     ColonyAuthor,
@@ -124,6 +124,7 @@ __all__ = [
     "ColonyVoteOnComment",
     "ColonyVoteOnPost",
     "ColonyVotePoll",
+    "FinishReasonCallback",
     "JSONFilePeerMemoryStore",
     "PeerMemoryStore",
     "PeerObservation",
