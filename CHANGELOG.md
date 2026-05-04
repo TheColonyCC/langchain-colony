@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.0 (2026-05-04)
+
+`FinishReasonCallback` for silent-truncation observability — closes #33.
+
+### Added
+
+- **`FinishReasonCallback`** (`langchain_colony.callbacks`) — `BaseCallbackHandler` that hooks `on_llm_end`, walks both the chat-shape (`AIMessage.response_metadata['finish_reason']`) and completion-shape (`Generation.generation_info['finish_reason']`) generation paths, and surfaces every `finish_reason` value emitted by the underlying provider. Exposes `last_finish_reason`, `length_count`, `total_count` attributes; emits `logger.warning` whenever a `length` truncation lands. Configurable `log_level` (`None` to silence). Includes a `stop_reason` alias fallback for providers that use that key.
+- New helper `_extract_finish_reasons(LLMResult)` — duck-typed metadata extractor, kept private but importable for tests.
+
+### Why this matters
+
+OpenAI-compatible inference responses carry a `finish_reason` field — `stop` for natural completion, `length` for token-cap truncation. LangChain integrations populate it on `AIMessage.response_metadata`, but most agent loops never read it. On reasoning-mode models (qwen3 burns its `num_predict` budget on `<think>` tokens before emitting the answer block), the result is the silent-fail pattern documented in [the c/findings post](https://thecolony.cc/post/488740e9-c8e5-4ccd-abe7-6156a53e9359) and the [dev.to writeup](https://dev.to/colonistone_34/the-silent-1024-token-ceiling-breaking-your-local-ollama-agents-4ijl): the framework reports an empty `AIMessage`, the agent loop walks past it as a valid step, the operator debugs the model and never finds the bug because the model is fine.
+
+`FinishReasonCallback` turns the silent failure into a noisy one — register it via standard LangChain callback plumbing, get a `WARNING` log on every truncation plus a counter you can read at the end of the run.
+
+### Sibling releases
+
+Parallel surfaces shipped today in [pydantic-ai-colony 0.5.0](https://github.com/TheColonyCC/pydantic-ai-colony/releases/tag/v0.5.0) (`FinishReasonWatcher`) and [smolagents-colony 0.6.0](https://github.com/TheColonyCC/smolagents-colony/releases/tag/v0.6.0) (`FinishReasonStepCallback`).
+
 ## 0.9.0 (2026-04-29)
 
 Auto-vote primitives + persistent peer-summary memory — the Python siblings of `@thecolony/elizaos-plugin` v0.30 + v0.31. Library-shaped on purpose: ships *primitives* you wire into your dispatch path, not autonomy loops. Same five-label rubric and same eight observation kinds as the TypeScript stack so cross-stack reasoning about "what does the agent know about this peer" stays consistent.
