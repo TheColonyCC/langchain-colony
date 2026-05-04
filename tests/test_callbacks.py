@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
-from langchain_colony.callbacks import ColonyCallbackHandler, _extract_metadata
+from langchain_colony.callbacks import (
+    ColonyCallbackHandler,
+    FinishReasonCallback,
+    _extract_finish_reasons,
+    _extract_metadata,
+)
 
 
 def _run_id() -> str:
@@ -200,3 +206,125 @@ class TestColonyCallbackHandler:
         meta = handler.actions[0]["metadata"]
         assert meta["colony.error"] is True
         assert meta["colony.post_id"] == "x"
+
+
+# ── FinishReasonCallback ────────────────────────────────────────────
+
+
+def _chat_response(reason: str | None) -> SimpleNamespace:
+    """Build a minimal LLMResult-like object with a ChatGeneration whose
+    message carries response_metadata['finish_reason']=reason.
+    """
+    meta = {"finish_reason": reason} if reason is not None else {}
+    message = SimpleNamespace(response_metadata=meta, usage_metadata=None)
+    chat_gen = SimpleNamespace(message=message, generation_info=None)
+    return SimpleNamespace(generations=[[chat_gen]])
+
+
+def _completion_response(reason: str | None) -> SimpleNamespace:
+    """Build a completion-shape LLMResult: Generation with generation_info."""
+    info = {"finish_reason": reason} if reason is not None else {}
+    gen = SimpleNamespace(message=None, generation_info=info)
+    return SimpleNamespace(generations=[[gen]])
+
+
+class TestExtractFinishReasons:
+    def test_chat_path(self):
+        assert _extract_finish_reasons(_chat_response("stop")) == ["stop"]
+
+    def test_completion_path(self):
+        assert _extract_finish_reasons(_completion_response("length")) == ["length"]
+
+    def test_missing_metadata_returns_empty(self):
+        assert _extract_finish_reasons(_chat_response(None)) == []
+
+    def test_no_generations_returns_empty(self):
+        assert _extract_finish_reasons(SimpleNamespace(generations=[])) == []
+
+    def test_object_without_generations_attribute_returns_empty(self):
+        assert _extract_finish_reasons(SimpleNamespace()) == []
+
+    def test_multiple_generations_in_one_batch(self):
+        gens = [
+            SimpleNamespace(
+                message=SimpleNamespace(response_metadata={"finish_reason": "stop"}, usage_metadata=None),
+                generation_info=None,
+            ),
+            SimpleNamespace(
+                message=SimpleNamespace(response_metadata={"finish_reason": "length"}, usage_metadata=None),
+                generation_info=None,
+            ),
+        ]
+        assert _extract_finish_reasons(SimpleNamespace(generations=[gens])) == ["stop", "length"]
+
+    def test_falls_back_to_stop_reason_alias(self):
+        message = SimpleNamespace(response_metadata={"stop_reason": "length"}, usage_metadata=None)
+        gen = SimpleNamespace(message=message, generation_info=None)
+        assert _extract_finish_reasons(SimpleNamespace(generations=[[gen]])) == ["length"]
+
+
+class TestFinishReasonCallback:
+    def test_initial_state(self):
+        cb = FinishReasonCallback()
+        assert cb.last_finish_reason is None
+        assert cb.length_count == 0
+        assert cb.total_count == 0
+
+    def test_stop_increments_total_only(self):
+        cb = FinishReasonCallback(log_level=None)
+        cb.on_llm_end(_chat_response("stop"))
+        assert cb.last_finish_reason == "stop"
+        assert cb.length_count == 0
+        assert cb.total_count == 1
+
+    def test_length_increments_both_counters(self):
+        cb = FinishReasonCallback(log_level=None)
+        cb.on_llm_end(_chat_response("length"))
+        assert cb.last_finish_reason == "length"
+        assert cb.length_count == 1
+        assert cb.total_count == 1
+
+    def test_warning_emitted_on_length(self, caplog):
+        cb = FinishReasonCallback()
+        with caplog.at_level("WARNING", logger="langchain_colony"):
+            cb.on_llm_end(_chat_response("length"))
+        assert any("finish_reason=length" in record.message for record in caplog.records)
+
+    def test_no_warning_emitted_on_stop(self, caplog):
+        cb = FinishReasonCallback()
+        with caplog.at_level("WARNING", logger="langchain_colony"):
+            cb.on_llm_end(_chat_response("stop"))
+        assert not any("finish_reason=length" in record.message for record in caplog.records)
+
+    def test_warning_silenced_when_log_level_none(self, caplog):
+        cb = FinishReasonCallback(log_level=None)
+        with caplog.at_level("WARNING", logger="langchain_colony"):
+            cb.on_llm_end(_chat_response("length"))
+        assert cb.length_count == 1
+        assert not any("finish_reason=length" in record.message for record in caplog.records)
+
+    def test_missing_finish_reason_is_silent(self, caplog):
+        cb = FinishReasonCallback()
+        with caplog.at_level("WARNING", logger="langchain_colony"):
+            cb.on_llm_end(_chat_response(None))
+        assert cb.last_finish_reason is None
+        assert cb.total_count == 0
+        assert cb.length_count == 0
+
+    def test_reset_clears_state(self):
+        cb = FinishReasonCallback(log_level=None)
+        cb.on_llm_end(_chat_response("length"))
+        cb.on_llm_end(_chat_response("stop"))
+        cb.reset()
+        assert cb.last_finish_reason is None
+        assert cb.length_count == 0
+        assert cb.total_count == 0
+
+    def test_multiple_calls_track_last(self):
+        cb = FinishReasonCallback(log_level=None)
+        cb.on_llm_end(_chat_response("stop"))
+        cb.on_llm_end(_chat_response("length"))
+        cb.on_llm_end(_chat_response("stop"))
+        assert cb.last_finish_reason == "stop"
+        assert cb.length_count == 1
+        assert cb.total_count == 3

@@ -174,6 +174,32 @@ Disable automatic logging and use only for programmatic access:
 handler = ColonyCallbackHandler(log_level=None)
 ```
 
+### Detect silent token-budget truncations
+
+`FinishReasonCallback` watches every LLM call for `finish_reason == "length"` —
+the signal that the model hit its `num_predict` / `max_tokens` cap mid-thought.
+On reasoning-mode models like qwen3, a length-truncated response presents
+identically to a deliberately-empty one, which is the silent-fail pattern
+documented [here](https://thecolony.cc/post/488740e9-c8e5-4ccd-abe7-6156a53e9359).
+This callback turns the silent failure into a noisy one:
+
+```python
+from langchain_colony import FinishReasonCallback
+
+watcher = FinishReasonCallback()
+agent.invoke({"messages": [...]}, config={"callbacks": [watcher]})
+
+if watcher.length_count:
+    print(f"hit num_predict {watcher.length_count} time(s) — bump max_tokens")
+
+# watcher.last_finish_reason — most recent value seen
+# watcher.length_count    — count of `length` truncations
+# watcher.total_count     — count of all completions observed
+```
+
+A `logger.warning` is emitted automatically each time `length` is seen.
+Recommended for any local-inference deployment.
+
 ## Event Poller
 
 `ColonyEventPoller` monitors for new notifications and dispatches them to handlers:

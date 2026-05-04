@@ -197,3 +197,113 @@ class ColonyCallbackHandler(BaseCallbackHandler):
         """Clear all recorded actions."""
         self.actions.clear()
         self._pending.clear()
+
+
+# ── Finish-reason observability ─────────────────────────────────────
+
+
+def _extract_finish_reasons(response: Any) -> list[str]:
+    """Pull every ``finish_reason`` from a LangChain ``LLMResult``.
+
+    Handles both the chat-model shape (``ChatGeneration.message``
+    carries ``response_metadata['finish_reason']``) and the completion
+    shape (``Generation.generation_info['finish_reason']``). Returns a
+    flat list of values across all generations; an empty list when the
+    metadata isn't surfaced by the provider integration.
+    """
+    out: list[str] = []
+    generations = getattr(response, "generations", None) or []
+    for batch in generations:
+        # ``generations`` is list[list[Generation]]; inner items may
+        # themselves be Generation or ChatGeneration.
+        items = batch if isinstance(batch, list) else [batch]
+        for gen in items:
+            value: str | None = None
+            # Chat path
+            message = getattr(gen, "message", None)
+            if message is not None:
+                meta = getattr(message, "response_metadata", None) or {}
+                value = meta.get("finish_reason") or meta.get("stop_reason")
+                if value is None:
+                    usage = getattr(message, "usage_metadata", None) or {}
+                    value = usage.get("stop_reason") if isinstance(usage, dict) else None
+            # Completion path / fallback
+            if value is None:
+                info = getattr(gen, "generation_info", None) or {}
+                value = info.get("finish_reason") or info.get("stop_reason")
+            if value:
+                out.append(str(value))
+    return out
+
+
+class FinishReasonCallback(BaseCallbackHandler):
+    """LangChain callback that surfaces LLM ``finish_reason`` for every call.
+
+    The OpenAI-compatible response shape includes a ``finish_reason``
+    field — ``stop`` when the model finished naturally, ``length`` when
+    it hit the token cap mid-thought. Most LangChain agent loops never
+    read this field, so a length-truncated response presents identically
+    to a deliberately-empty one. With qwen3 / other reasoning-mode
+    models running on a tight ``num_predict``, that's the silent-fail
+    pattern documented at
+    https://thecolony.cc/post/488740e9-c8e5-4ccd-abe7-6156a53e9359.
+
+    This callback hooks ``on_llm_end``, captures every emitted
+    ``finish_reason`` value, exposes the most recent on
+    :attr:`last_finish_reason`, and emits ``logger.warning`` whenever a
+    ``length`` value lands. Operators can also read :attr:`length_count`
+    for a running total.
+
+    Usage::
+
+        from langchain_colony import FinishReasonCallback
+
+        watcher = FinishReasonCallback()
+        agent.invoke({"messages": [...]}, config={"callbacks": [watcher]})
+
+        if watcher.length_count:
+            print(f"hit num_predict {watcher.length_count} time(s) — bump max_tokens")
+
+    Args:
+        log_level: Logging level for the warning emitted on ``length``.
+            Set to ``None`` to disable logging and only collect counters.
+            Defaults to ``logging.WARNING``.
+    """
+
+    #: The most recently observed finish_reason, or ``None`` if no LLM
+    #: call has completed (or no provider surfaced the field).
+    last_finish_reason: str | None
+
+    #: Count of completions where ``finish_reason == "length"``.
+    length_count: int
+
+    #: Count of all completions observed (with surfaced finish_reason).
+    total_count: int
+
+    def __init__(self, log_level: int | None = logging.WARNING) -> None:
+        self.log_level = log_level
+        self.last_finish_reason = None
+        self.length_count = 0
+        self.total_count = 0
+
+    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        reasons = _extract_finish_reasons(response)
+        if not reasons:
+            return
+        self.total_count += len(reasons)
+        self.last_finish_reason = reasons[-1]
+        for reason in reasons:
+            if reason == "length":
+                self.length_count += 1
+                if self.log_level is not None:
+                    logger.log(
+                        self.log_level,
+                        "LLM finish_reason=length — likely truncated "
+                        "mid-thought, consider raising num_predict / max_tokens",
+                    )
+
+    def reset(self) -> None:
+        """Reset counters and the last-seen reason."""
+        self.last_finish_reason = None
+        self.length_count = 0
+        self.total_count = 0
