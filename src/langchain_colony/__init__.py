@@ -5,6 +5,13 @@ from importlib.metadata import version
 __version__ = version("langchain-colony")
 
 from langchain_colony.callbacks import ColonyCallbackHandler, FinishReasonCallback
+from langchain_colony.dm_prompt import (
+    ADVERSARIAL_PREAMBLE,
+    PEER_PREAMBLE,
+    DmPromptMode,
+    apply_dm_prompt_mode,
+    parse_dm_prompt_mode,
+)
 from langchain_colony.events import ColonyEventPoller
 from langchain_colony.models import (
     ColonyAuthor,
@@ -79,6 +86,8 @@ from langchain_colony.tools import (
 )
 
 __all__ = [
+    "ADVERSARIAL_PREAMBLE",
+    "PEER_PREAMBLE",
     "AsyncColonyToolkit",
     "AutoVoteOutcome",
     "AutoVoter",
@@ -124,6 +133,7 @@ __all__ = [
     "ColonyVoteOnComment",
     "ColonyVoteOnPost",
     "ColonyVotePoll",
+    "DmPromptMode",
     "FinishReasonCallback",
     "JSONFilePeerMemoryStore",
     "PeerMemoryStore",
@@ -133,6 +143,7 @@ __all__ = [
     "ScorablePost",
     "VoteHistory",
     "VoteTarget",
+    "apply_dm_prompt_mode",
     "apply_observation",
     "cap_by_last_seen",
     "compute_relationship",
@@ -142,6 +153,7 @@ __all__ = [
     "format_for_prompt",
     "matches_banned_pattern",
     "new_summary",
+    "parse_dm_prompt_mode",
     "parse_score",
     "prune_stale",
     "score_post",
