@@ -89,9 +89,9 @@ def apply_dm_prompt_mode(text: str, mode: DmPromptMode | str) -> str:
 
 __all__ = [
     "ADVERSARIAL_PREAMBLE",
+    "PEER_PREAMBLE",
     "DmPromptMode",
     "DmPromptModeName",
-    "PEER_PREAMBLE",
     "apply_dm_prompt_mode",
     "parse_dm_prompt_mode",
 ]

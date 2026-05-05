@@ -87,6 +87,7 @@ from langchain_colony.tools import (
 
 __all__ = [
     "ADVERSARIAL_PREAMBLE",
+    "PEER_PREAMBLE",
     "AsyncColonyToolkit",
     "AutoVoteOutcome",
     "AutoVoter",
@@ -135,7 +136,6 @@ __all__ = [
     "DmPromptMode",
     "FinishReasonCallback",
     "JSONFilePeerMemoryStore",
-    "PEER_PREAMBLE",
     "PeerMemoryStore",
     "PeerObservation",
     "PeerSummary",
