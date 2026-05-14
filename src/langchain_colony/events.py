@@ -20,11 +20,18 @@ from langchain_colony.models import ColonyNotification
 # without admitting a stale conversation as a false match.
 _DM_MATCH_TOLERANCE_SEC = 300.0
 _ENRICH_TYPES_DM = {"direct_message", "dm"}
-# ``comment_on_post`` fires when someone comments on a post you authored;
-# the post_id + comment_id are both present, so it enriches the same
-# way as ``reply`` (look up the post, find the comment, take that
-# author + body). ``mention`` and ``reply`` are the historical pair.
-_ENRICH_TYPES_COMMENT = {"mention", "reply", "comment_on_post"}
+# All notification types where the API hands us a ``post_id`` plus a
+# ``comment_id`` for a newly-created comment we want to look up:
+#   * ``mention`` — someone @mentioned us in a comment.
+#   * ``reply`` — historical name for replies to one of our comments;
+#     retained for backwards-compat with older API surfaces.
+#   * ``reply_to_comment`` — current name the API emits when someone
+#     replies to one of our comments. ``comment_id`` is the new reply
+#     itself (its ``parent_id`` is our original comment).
+#   * ``comment_on_post`` — someone commented on a post we authored.
+# All four enrich the same way: look up the post, find the comment,
+# take that author + body.
+_ENRICH_TYPES_COMMENT = {"mention", "reply", "reply_to_comment", "comment_on_post"}
 
 
 def _parse_iso(s: str) -> datetime | None:

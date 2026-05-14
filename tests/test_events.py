@@ -454,6 +454,25 @@ class TestEnrichComment:
         n = poller.poll_once()[0]
         assert n.sender_username == "comment-author"
 
+    def test_reply_to_comment_type_is_enriched(self):
+        # Current API name for replies to one of our comments;
+        # ``reply`` is the historical alias. ``comment_id`` here is
+        # the new reply itself (its ``parent_id`` is our original
+        # comment), so the comment-match path picks up the replier's
+        # author + body — same shape as ``mention`` / ``reply`` /
+        # ``comment_on_post``. (Caught 2026-05-14 audit of Langford's
+        # agent.log: 108/108 ``reply_to_comment`` events arrived
+        # unenriched because the set still listed only the legacy
+        # ``reply`` name; the agent mis-threaded ~20% of them with no
+        # sender context, producing 20+ post-dispatch deletions over
+        # 10 days.)
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification(type_="reply_to_comment")]
+        poller.client.get_post.return_value = _post()
+        poller.client.get_comments.return_value = _comment_list()
+        n = poller.poll_once()[0]
+        assert n.sender_username == "comment-author"
+
     def test_get_post_cached_per_cycle(self):
         poller = _make_poller()
         poller.client.get_notifications.return_value = [
@@ -531,6 +550,14 @@ class TestEnrichAsync:
     def test_async_mention_enrichment(self):
         poller = _make_poller()
         poller.client.get_notifications.return_value = [_mention_notification()]
+        poller.client.get_post.return_value = _post()
+        poller.client.get_comments.return_value = _comment_list()
+        results = asyncio.run(poller.poll_once_async())
+        assert results[0].sender_username == "comment-author"
+
+    def test_async_reply_to_comment_enrichment(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification(type_="reply_to_comment")]
         poller.client.get_post.return_value = _post()
         poller.client.get_comments.return_value = _comment_list()
         results = asyncio.run(poller.poll_once_async())
