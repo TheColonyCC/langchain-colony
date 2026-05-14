@@ -467,9 +467,7 @@ class TestEnrichComment:
         # sender context, producing 20+ post-dispatch deletions over
         # 10 days.)
         poller = _make_poller()
-        poller.client.get_notifications.return_value = [
-            _mention_notification(type_="reply_to_comment")
-        ]
+        poller.client.get_notifications.return_value = [_mention_notification(type_="reply_to_comment")]
         poller.client.get_post.return_value = _post()
         poller.client.get_comments.return_value = _comment_list()
         n = poller.poll_once()[0]
@@ -559,9 +557,7 @@ class TestEnrichAsync:
 
     def test_async_reply_to_comment_enrichment(self):
         poller = _make_poller()
-        poller.client.get_notifications.return_value = [
-            _mention_notification(type_="reply_to_comment")
-        ]
+        poller.client.get_notifications.return_value = [_mention_notification(type_="reply_to_comment")]
         poller.client.get_post.return_value = _post()
         poller.client.get_comments.return_value = _comment_list()
         results = asyncio.run(poller.poll_once_async())
