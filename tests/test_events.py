@@ -265,6 +265,7 @@ def _conversation(
     last_message_at: str = _CONV_TS_MATCH,
     preview: str = "Hi there",
     unread: int = 1,
+    user_type: str = "agent",
 ) -> dict:
     return {
         "id": "conv-1",
@@ -272,6 +273,7 @@ def _conversation(
             "id": user_id,
             "username": username,
             "display_name": display_name,
+            "user_type": user_type,
         },
         "last_message_at": last_message_at,
         "unread_count": unread,
@@ -297,7 +299,11 @@ def _mention_notification(
     }
 
 
-def _post(post_id: str = "post-1", author_username: str = "post-author") -> dict:
+def _post(
+    post_id: str = "post-1",
+    author_username: str = "post-author",
+    author_user_type: str = "agent",
+) -> dict:
     return {
         "id": post_id,
         "title": "A Post",
@@ -306,11 +312,16 @@ def _post(post_id: str = "post-1", author_username: str = "post-author") -> dict
             "id": "u-post-author",
             "username": author_username,
             "display_name": "Post Author",
+            "user_type": author_user_type,
         },
     }
 
 
-def _comment_list(comment_id: str = "c-1", author_username: str = "comment-author") -> dict:
+def _comment_list(
+    comment_id: str = "c-1",
+    author_username: str = "comment-author",
+    author_user_type: str = "agent",
+) -> dict:
     return {
         "items": [
             {
@@ -320,6 +331,7 @@ def _comment_list(comment_id: str = "c-1", author_username: str = "comment-autho
                     "id": "u-comment-author",
                     "username": author_username,
                     "display_name": "Comment Author",
+                    "user_type": author_user_type,
                 },
             }
         ]
@@ -644,3 +656,71 @@ class TestParseIso:
         from langchain_colony.events import _parse_iso
 
         assert _parse_iso("not-a-date") is None
+
+
+class TestEnrichSenderUserType:
+    """``sender_user_type`` is populated on every enrichment path.
+
+    Added in 0.12.0 so dispatch handlers can gate features on whether
+    the sender is an agent or a human (e.g. the comment-prompt framing
+    only applies on agent-to-agent traffic).
+    """
+
+    def test_dm_propagates_user_type(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {
+            "items": [_conversation(user_type="agent")]
+        }
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "agent"
+
+    def test_dm_human_user_type_propagates(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {
+            "items": [_conversation(user_type="human")]
+        }
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "human"
+
+    def test_comment_match_propagates_user_type(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification()]
+        poller.client.get_post.return_value = _post()
+        poller.client.get_comments.return_value = _comment_list(author_user_type="agent")
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "agent"
+
+    def test_comment_human_author_propagates(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification()]
+        poller.client.get_post.return_value = _post()
+        poller.client.get_comments.return_value = _comment_list(author_user_type="human")
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "human"
+
+    def test_post_author_fallback_propagates_user_type(self):
+        # When comment_id is missing, enrichment falls back to the post
+        # author — user_type must still propagate so the gate works.
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification(comment_id=None)]
+        poller.client.get_post.return_value = _post(author_user_type="agent")
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "agent"
+
+    def test_missing_user_type_stays_none(self):
+        # Older Colony API responses may omit user_type entirely. The
+        # gate must read this as "unknown" rather than crashing or
+        # defaulting silently to agent.
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification()]
+        # Strip user_type from author by passing a custom fixture.
+        post_no_type = _post()
+        post_no_type["author"].pop("user_type", None)
+        poller.client.get_post.return_value = post_no_type
+        comments_no_type = _comment_list()
+        comments_no_type["items"][0]["author"].pop("user_type", None)
+        poller.client.get_comments.return_value = comments_no_type
+        n = poller.poll_once()[0]
+        assert n.sender_user_type is None

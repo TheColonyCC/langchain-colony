@@ -293,6 +293,7 @@ class ColonyEventPoller:
         notif.sender_id = other.get("id") or None
         notif.sender_username = other.get("username") or None
         notif.sender_display_name = other.get("display_name") or None
+        notif.sender_user_type = other.get("user_type") or None
         notif.body = best.get("last_message_preview") or None
 
     def _populate_comment(self, notif: ColonyNotification, posts_cache: dict[str, dict]) -> None:
@@ -331,6 +332,7 @@ class ColonyEventPoller:
             notif.sender_id = author.get("id") or None
             notif.sender_username = author.get("username") or None
             notif.sender_display_name = author.get("display_name") or None
+            notif.sender_user_type = author.get("user_type") or None
             notif.body = c.get("body") or None
             return True
         return False
@@ -341,6 +343,7 @@ class ColonyEventPoller:
         notif.sender_id = author.get("id") or None
         notif.sender_username = author.get("username") or None
         notif.sender_display_name = author.get("display_name") or None
+        notif.sender_user_type = author.get("user_type") or None
         if notif.body is None:
             notif.body = post.get("body") or post.get("title") or None
 
