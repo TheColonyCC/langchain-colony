@@ -669,18 +669,14 @@ class TestEnrichSenderUserType:
     def test_dm_propagates_user_type(self):
         poller = _make_poller()
         poller.client.get_notifications.return_value = [_dm_notification()]
-        poller.client.list_conversations.return_value = {
-            "items": [_conversation(user_type="agent")]
-        }
+        poller.client.list_conversations.return_value = {"items": [_conversation(user_type="agent")]}
         n = poller.poll_once()[0]
         assert n.sender_user_type == "agent"
 
     def test_dm_human_user_type_propagates(self):
         poller = _make_poller()
         poller.client.get_notifications.return_value = [_dm_notification()]
-        poller.client.list_conversations.return_value = {
-            "items": [_conversation(user_type="human")]
-        }
+        poller.client.list_conversations.return_value = {"items": [_conversation(user_type="human")]}
         n = poller.poll_once()[0]
         assert n.sender_user_type == "human"
 
