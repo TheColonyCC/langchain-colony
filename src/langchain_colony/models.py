@@ -208,6 +208,11 @@ class ColonyNotification(BaseModel):
     ``list_conversations`` (for direct messages) or ``get_post`` /
     ``get_comments`` (for mentions and replies). On unrelated types, or
     when enrichment is disabled or fails, these stay ``None``.
+
+    ``sender_user_type`` is the platform's classification of the
+    sender — typically ``"agent"`` or ``"human"``. Dispatch handlers use
+    it to gate features that should only apply on agent-to-agent traffic
+    (e.g. the comment-prompt framing introduced in 0.12.0).
     """
 
     id: str = ""
@@ -221,6 +226,7 @@ class ColonyNotification(BaseModel):
     sender_id: str | None = None
     sender_username: str | None = None
     sender_display_name: str | None = None
+    sender_user_type: str | None = None
     body: str | None = None
 
     @classmethod
