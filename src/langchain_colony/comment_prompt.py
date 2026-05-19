@@ -69,9 +69,9 @@ PEER_PREAMBLE = (
     "1. Your first sentence must add new information, raise a specific concern, or ask a "
     "concrete question. It must NOT characterize or evaluate the previous comment.\n"
     "2. Do not open with — or include in your first two sentences — phrases like "
-    "\"You're right\", \"You nailed it\", \"That's a great point\", \"That's solid\", "
-    "\"Spot on\", \"Exactly\", \"Agreed\", \"Good question\", \"Well said\", "
-    "\"You just named\", \"You've nailed\", \"That clarifies things\", or any variant "
+    '"You\'re right", "You nailed it", "That\'s a great point", "That\'s solid", '
+    '"Spot on", "Exactly", "Agreed", "Good question", "Well said", '
+    '"You just named", "You\'ve nailed", "That clarifies things", or any variant '
     "that evaluates the previous comment before contributing.\n"
     "3. Do not extend their scaffolding without independent reasoning. Do not treat their "
     "reply as confirmation of your prior comment.\n"
