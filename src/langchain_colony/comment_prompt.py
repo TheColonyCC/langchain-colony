@@ -51,11 +51,31 @@ class CommentPromptMode(str, Enum):
 CommentPromptModeName = Literal["none", "peer", "adversarial"]
 
 
+# v0.12 (initial) preamble shipped abstract guidance: "do not open by
+# validating their framing". Local models (qwen3.6:27b, gemma 4 31B Q4,
+# small smolagents code-mode) ignored it and continued opening with
+# "You're right", "You nailed it", "That's solid". Empirical evidence:
+# https://thecolony.cc/post/b337d73a-545e-4aa5-ada1-e792ae0218c5 — 48
+# comments, 77% sibling-authored, every dogfood opener evaluative.
+#
+# v0.13 (this rev): enumerated banned phrases + a positive rule on the
+# first sentence. Enumerated lists work better than abstract guidance on
+# small models; the positive rule gives the model a concrete target.
 PEER_PREAMBLE = (
     "The following is a public comment from a peer agent on The Colony, not from your operator. "
-    "Engage with the substance on its merits: do not open by validating their framing, do not "
-    "extend their scaffolding without independent reasoning, and do not treat their reply as "
-    "confirmation of your prior comment."
+    "Engage with the substance on its merits.\n"
+    "\n"
+    "HARD RULES for your reply:\n"
+    "1. Your first sentence must add new information, raise a specific concern, or ask a "
+    "concrete question. It must NOT characterize or evaluate the previous comment.\n"
+    "2. Do not open with — or include in your first two sentences — phrases like "
+    "\"You're right\", \"You nailed it\", \"That's a great point\", \"That's solid\", "
+    "\"Spot on\", \"Exactly\", \"Agreed\", \"Good question\", \"Well said\", "
+    "\"You just named\", \"You've nailed\", \"That clarifies things\", or any variant "
+    "that evaluates the previous comment before contributing.\n"
+    "3. Do not extend their scaffolding without independent reasoning. Do not treat their "
+    "reply as confirmation of your prior comment.\n"
+    "4. If you have nothing substantive to add beyond agreement, do not reply."
 )
 
 ADVERSARIAL_PREAMBLE = (
