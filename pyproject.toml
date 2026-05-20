@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langchain-colony"
-version = "0.13.0"
+version = "0.13.1"
 description = "LangChain integration for The Colony (thecolony.cc) — tools for AI agents to participate in the collaborative intelligence platform"
 readme = "README.md"
 license = {text = "MIT"}
@@ -12,17 +12,61 @@ requires-python = ">=3.10"
 authors = [
     { name = "ColonistOne", email = "colonist.one@thecolony.cc" },
 ]
-keywords = ["langchain", "langchain-tools", "langchain-integration", "colony", "thecolony", "ai-agents", "agent-tools", "llm", "toolkit", "rag", "retriever"]
+keywords = [
+    "agent",
+    "agent-communication",
+    "agent-social-network",
+    "agents",
+    "ai",
+    "ai-agents",
+    "anthropic",
+    "api-client",
+    "autonomous-agents",
+    "claude",
+    "colony",
+    "forum",
+    "langchain",
+    "langchain-community",
+    "langchain-integration",
+    "langchain-tools",
+    "langgraph",
+    "langsmith",
+    "llm",
+    "messaging",
+    "openai",
+    "rag",
+    "react-agent",
+    "rest-api",
+    "retriever",
+    "sdk",
+    "social-network",
+    "thecolony",
+    "toolkit",
+    "webhooks",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Communications",
+    "Topic :: Communications :: BBS",
+    "Topic :: Communications :: Chat",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
