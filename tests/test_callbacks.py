@@ -367,6 +367,12 @@ class TestGenContent:
         gen = SimpleNamespace(message=SimpleNamespace(content=None))
         assert _gen_content(gen) == ""
 
+    def test_non_str_non_list_content_is_stringified(self):
+        # Defensive fallback: a provider returning a non-str/non-list content
+        # value is coerced to str rather than crashing.
+        gen = SimpleNamespace(message=SimpleNamespace(content=42))
+        assert _gen_content(gen) == "42"
+
 
 class TestRaiseOnEmptyTruncation:
     def test_raises_on_length_with_empty_content(self):
