@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
+from typing import Any
+
+import pytest
 
 from langchain_colony.callbacks import (
     ColonyCallbackHandler,
     FinishReasonCallback,
+    TruncatedGenerationError,
     _extract_finish_reasons,
     _extract_metadata,
+    _gen_content,
 )
 
 
@@ -228,6 +233,14 @@ def _completion_response(reason: str | None) -> SimpleNamespace:
     return SimpleNamespace(generations=[[gen]])
 
 
+def _chat_response_with_content(reason: str | None, content: Any) -> SimpleNamespace:
+    """Chat-shape LLMResult whose message carries both finish_reason and content."""
+    meta = {"finish_reason": reason} if reason is not None else {}
+    message = SimpleNamespace(response_metadata=meta, usage_metadata=None, content=content)
+    chat_gen = SimpleNamespace(message=message, generation_info=None)
+    return SimpleNamespace(generations=[[chat_gen]])
+
+
 class TestExtractFinishReasons:
     def test_chat_path(self):
         assert _extract_finish_reasons(_chat_response("stop")) == ["stop"]
@@ -328,3 +341,63 @@ class TestFinishReasonCallback:
         assert cb.last_finish_reason == "stop"
         assert cb.length_count == 1
         assert cb.total_count == 3
+
+
+# ── Empty-truncation guard (raise_on_empty_truncation) ──────────────
+
+
+class TestGenContent:
+    def test_string_content(self):
+        gen = SimpleNamespace(message=SimpleNamespace(content="hello"))
+        assert _gen_content(gen) == "hello"
+
+    def test_missing_content_is_empty(self):
+        gen = SimpleNamespace(message=SimpleNamespace(response_metadata={}))
+        assert _gen_content(gen) == ""
+
+    def test_completion_text(self):
+        gen = SimpleNamespace(message=None, text="done")
+        assert _gen_content(gen) == "done"
+
+    def test_multimodal_block_list(self):
+        gen = SimpleNamespace(message=SimpleNamespace(content=[{"type": "text", "text": "a"}, "b"]))
+        assert _gen_content(gen) == "ab"
+
+    def test_none_content(self):
+        gen = SimpleNamespace(message=SimpleNamespace(content=None))
+        assert _gen_content(gen) == ""
+
+
+class TestRaiseOnEmptyTruncation:
+    def test_raises_on_length_with_empty_content(self):
+        cb = FinishReasonCallback(log_level=None, raise_on_empty_truncation=True)
+        with pytest.raises(TruncatedGenerationError):
+            cb.on_llm_end(_chat_response_with_content("length", ""))
+        # counters still update before the raise
+        assert cb.length_count == 1
+
+    def test_raises_when_content_is_only_whitespace(self):
+        cb = FinishReasonCallback(log_level=None, raise_on_empty_truncation=True)
+        with pytest.raises(TruncatedGenerationError):
+            cb.on_llm_end(_chat_response_with_content("length", "   \n  "))
+
+    def test_no_raise_when_length_has_content(self):
+        cb = FinishReasonCallback(log_level=None, raise_on_empty_truncation=True)
+        cb.on_llm_end(_chat_response_with_content("length", "partial answer"))
+        assert cb.length_count == 1
+        assert cb.last_finish_reason == "length"
+
+    def test_no_raise_on_stop_with_empty_content(self):
+        cb = FinishReasonCallback(log_level=None, raise_on_empty_truncation=True)
+        cb.on_llm_end(_chat_response_with_content("stop", ""))
+        assert cb.last_finish_reason == "stop"
+
+    def test_default_does_not_raise(self):
+        # Back-compat: without the opt-in, empty + length is observability only.
+        cb = FinishReasonCallback(log_level=None)
+        cb.on_llm_end(_chat_response_with_content("length", ""))
+        assert cb.length_count == 1
+        assert cb.raise_error is False
+
+    def test_opt_in_sets_raise_error(self):
+        assert FinishReasonCallback(raise_on_empty_truncation=True).raise_error is True

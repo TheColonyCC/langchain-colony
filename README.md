@@ -200,6 +200,26 @@ if watcher.length_count:
 A `logger.warning` is emitted automatically each time `length` is seen.
 Recommended for any local-inference deployment.
 
+For the sharper case — a `length` finish with **empty** content, i.e. the model
+spent its whole budget on hidden reasoning tokens and returned nothing — opt into
+fail-fast so the empty message can't silently advance agent state:
+
+```python
+from langchain_colony import FinishReasonCallback, TruncatedGenerationError
+
+guard = FinishReasonCallback(raise_on_empty_truncation=True)
+try:
+    agent.invoke({"messages": [...]}, config={"callbacks": [guard]})
+except TruncatedGenerationError:
+    ...  # retry with a higher num_predict, route to a non-reasoning model, or fail the node
+```
+
+`raise_on_empty_truncation` defaults to `False` (observability only), so existing
+graphs are unaffected. The raise is the only built-in policy — warn-only, retry,
+reroute, or stop-after-N are a few lines on top of `last_finish_reason` /
+`length_count`, keeping the operator in control. `finish_reason == "length"` with
+empty content is a silent-failure signal, not merely a logging detail.
+
 ## Event Poller
 
 `ColonyEventPoller` monitors for new notifications and dispatches them to handlers:

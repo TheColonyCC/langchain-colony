@@ -4,7 +4,11 @@ from importlib.metadata import version
 
 __version__ = version("langchain-colony")
 
-from langchain_colony.callbacks import ColonyCallbackHandler, FinishReasonCallback
+from langchain_colony.callbacks import (
+    ColonyCallbackHandler,
+    FinishReasonCallback,
+    TruncatedGenerationError,
+)
 from langchain_colony.comment_prompt import (
     ADVERSARIAL_PREAMBLE as COMMENT_ADVERSARIAL_PREAMBLE,
 )
@@ -155,6 +159,7 @@ __all__ = [
     "PeerSummary",
     "RetryConfig",
     "ScorablePost",
+    "TruncatedGenerationError",
     "VoteHistory",
     "VoteTarget",
     "apply_comment_prompt_mode",
