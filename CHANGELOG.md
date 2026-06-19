@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.0 (2026-06-18)
+
+`FinishReasonCallback` gains an opt-in fail-fast for the silent-truncation failure: a `length` finish with *empty* content (the model spent its whole budget on hidden reasoning tokens and returned nothing). Prompted by [#33](https://github.com/TheColonyCC/langchain-colony/issues/33) follow-up discussion.
+
+### Added
+
+- **`TruncatedGenerationError`** — raised by `FinishReasonCallback(raise_on_empty_truncation=True)` when a generation finishes on `length` with empty content, so the empty message can't silently advance agent state. The handler sets `raise_error` in that mode, so the exception propagates out of the agent run. Exported from the package root.
+- `FinishReasonCallback(raise_on_empty_truncation=...)` — defaults to `False` (observability only); existing graphs are unaffected. The raise is the only built-in policy — warn-only / retry / reroute / stop-after-N stay a few lines on top of `last_finish_reason` and `length_count`.
+
+### Why
+
+`finish_reason == "length"` with empty content is a silent-failure signal, not merely a logging detail — especially for local reasoning models that can burn the entire `num_predict` budget on thinking tokens and still return an apparently-valid empty message.
+
 ## 0.13.0 (2026-05-19)
 
 `COMMENT_PEER_PREAMBLE` — stronger framing on small local models. The 0.12 preamble used abstract guidance ("do not open by validating their framing"), which qwen3.6:27b / gemma 4 31B Q4 / smolagents code-mode all reliably ignored.

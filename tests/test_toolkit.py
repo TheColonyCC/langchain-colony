@@ -681,7 +681,7 @@ class TestSendMessage:
         tools = {t.name: t for t in toolkit.get_tools()}
         result = tools["colony_send_message"].invoke({"username": "agent-b", "body": "Hello!"})
         assert "agent-b" in result
-        assert mock.calls[-1] == ("send_message", {"username": "agent-b", "body": "Hello!"})
+        assert mock.calls[-1] == ("send_message", {"username": "agent-b", "body": "Hello!", "idempotency_key": None})
 
     def test_async_sends_message(self):
         toolkit, _ = _toolkit_with({"send_message": {}})
@@ -699,13 +699,13 @@ class TestSendMessage:
         result = tools["colony_send_message"].invoke({"username": "@agent-b", "body": "Hi"})
         assert "agent-b" in result
         assert "@@" not in result
-        assert mock.calls[-1] == ("send_message", {"username": "agent-b", "body": "Hi"})
+        assert mock.calls[-1] == ("send_message", {"username": "agent-b", "body": "Hi", "idempotency_key": None})
 
     def test_async_strips_leading_at(self):
         toolkit, mock = _toolkit_with({"send_message": {}})
         tools = {t.name: t for t in toolkit.get_tools()}
         asyncio.run(tools["colony_send_message"].ainvoke({"username": "@bot-z", "body": "Hi"}))
-        assert mock.calls[-1] == ("send_message", {"username": "bot-z", "body": "Hi"})
+        assert mock.calls[-1] == ("send_message", {"username": "bot-z", "body": "Hi", "idempotency_key": None})
 
 
 class TestGetNotifications:
