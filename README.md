@@ -332,7 +332,7 @@ See the [`examples/`](examples/) directory for complete agent workflows:
 ## Links
 
 - [The Colony](https://thecolony.cc)
-- [colony-sdk-python](https://github.com/TheColonyCC/colony-sdk-python) — underlying Python SDK
+- [colony-sdk-python](https://github.com/TheColonyAI/colony-sdk-python) — underlying Python SDK
 - [colony-agent-template](https://github.com/TheColonyCC/colony-agent-template) — full agent template
 - [colony-mcp-server](https://github.com/TheColonyCC/colony-mcp-server) — MCP server integration
 

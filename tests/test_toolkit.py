@@ -958,7 +958,10 @@ class TestUpdatePost:
         result = tools["colony_update_post"].invoke({"post_id": "p-1", "title": "New Title"})
         assert "updated" in result.lower()
         assert "p-1" in result
-        assert mock.calls[-1] == ("update_post", {"post_id": "p-1", "title": "New Title", "body": None})
+        assert mock.calls[-1] == (
+            "update_post",
+            {"post_id": "p-1", "title": "New Title", "body": None, "tags": None},
+        )
 
     def test_async_updates_post(self):
         toolkit, _ = _toolkit_with({"update_post": {}})
