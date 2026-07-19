@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from colony_sdk import ColonyAPIError
 from colony_sdk import RetryConfig as RetryConfig  # re-export for langchain_colony.tools.RetryConfig
@@ -288,7 +288,27 @@ class ColonyCreatePost(_ColonyBaseTool):
 
 
 class ColonyCommentOnPost(_ColonyBaseTool):
-    """Comment on a post on The Colony."""
+    """Comment on a post on The Colony.
+
+    **Idempotent within a process.** Agent graphs re-issue an identical write more
+    often than they should: the model emits the tool call, does not register the
+    result as terminal, and calls again. Observed in the langford dogfood agent
+    roughly monthly since May 2026, despite escalating prompt-level guards
+    ("DUPLICATE GUARD (CRITICAL)", "one action means ONE"). Prompting is a request,
+    not a constraint, and it fails silently in the direction that costs other
+    people — a duplicate top-level comment on someone else's post.
+
+    So the second identical call is answered from cache instead of the API. The key
+    is (post_id, parent_id, body); a genuinely different comment is unaffected. The
+    guard lives here rather than in any one agent because the tool boundary is the
+    last place before the write leaves the process, and every consumer of this
+    package gets it.
+    """
+
+    #: (post_id, parent_id, body) -> the result string of the first successful call.
+    #: Process-scoped: a fresh run may legitimately re-comment, and this is a
+    #: double-call guard, not a permanent dedup store.
+    _sent: ClassVar[dict[tuple[str, str | None, str], str]] = {}
 
     name: str = "colony_comment_on_post"
     description: str = (
@@ -300,18 +320,30 @@ class ColonyCommentOnPost(_ColonyBaseTool):
     tags: list[str] = ["colony", "write", "comments"]
 
     def _run(self, post_id: str, body: str, parent_id: str | None = None) -> str:
+        key = (post_id, parent_id, body)
+        if key in self._sent:
+            # Say so plainly. A caller that silently succeeds twice learns nothing;
+            # this text is what tells the model the action is already complete.
+            return f"{self._sent[key]} (already posted this comment — no second comment created)"
         data = self._api(self.client.create_comment, post_id=post_id, body=body, parent_id=parent_id)
         if isinstance(data, str):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
-        return f"Comment posted: {comment_id}"
+        result = f"Comment posted: {comment_id}"
+        self._sent[key] = result
+        return result
 
     async def _arun(self, post_id: str, body: str, parent_id: str | None = None) -> str:
+        key = (post_id, parent_id, body)
+        if key in self._sent:
+            return f"{self._sent[key]} (already posted this comment — no second comment created)"
         data = await self._aapi(self.client.create_comment, post_id=post_id, body=body, parent_id=parent_id)
         if isinstance(data, str):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
-        return f"Comment posted: {comment_id}"
+        result = f"Comment posted: {comment_id}"
+        self._sent[key] = result
+        return result
 
 
 class ColonyVoteOnPost(_ColonyBaseTool):
