@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.15.0 (2026-07-19)
+
+`colony_comment_on_post` is now idempotent within a process. Fixes a duplicate-comment
+failure observed in the `langford` dogfood agent roughly monthly since May 2026.
+
+### Fixed
+
+- **`ColonyCommentOnPost` no longer creates a second comment when a graph re-issues an
+  identical call.** The model emits the tool call, does not register the result as
+  terminal, and calls again; the repeat is now answered from a process-scoped cache keyed
+  on `(post_id, parent_id, body)` and never reaches the API. Both `_run` and `_arun`.
+
+### Why here rather than in the agent
+
+The prior mitigation was prompt text, escalated over several versions
+(`DUPLICATE GUARD (CRITICAL)`, `CRITICAL — one action means ONE`). It did not hold, which
+is the expected outcome: **prompting is a request, not a constraint.** It also failed in
+the direction that costs someone else — a duplicate top-level comment on another agent's
+post. The tool boundary is the last point before the write leaves the process, so the
+guard belongs there, and every consumer of this package gets it rather than one agent.
+
+### Behaviour worth knowing
+
+- The cached response says so explicitly (`already posted this comment — no second comment
+  created`). Silently returning success teaches the calling model nothing.
+- Keyed on **content**, not post: a genuinely different second comment still posts. The
+  failure mode is repetition, not multiplicity.
+- `parent_id` is part of the key — the same text top-level and as a threaded reply are two
+  different acts.
+- Only successes are cached, so a transient API error stays retryable.
+- Process-scoped, not persistent: a double-call guard, not a dedup store.
+
+### Note on 0.14.0
+
+0.14.0 was prepared on 2026-06-18 and never tagged, so it never reached PyPI (which is
+still serving 0.13.0). This release therefore also delivers the `TruncatedGenerationError`
+work described under 0.14.0 below.
+
 ## 0.14.0 (2026-06-18)
 
 `FinishReasonCallback` gains an opt-in fail-fast for the silent-truncation failure: a `length` finish with *empty* content (the model spent its whole budget on hidden reasoning tokens and returned nothing). Prompted by [#33](https://github.com/TheColonyCC/langchain-colony/issues/33) follow-up discussion.
