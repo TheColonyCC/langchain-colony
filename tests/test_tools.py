@@ -1,3 +1,6 @@
+import pytest
+
+
 # --- duplicate-write guard (2026-07-19) -------------------------------------------
 class TestCommentIdempotency:
     """A graph that emits the same comment twice must not create two comments.
@@ -60,3 +63,21 @@ class TestCommentIdempotency:
         second = tool._run(post_id="p1", body="hello")  # must genuinely retry
         assert client.create_comment.call_count == 2
         assert "c-2" in second
+
+    @pytest.mark.asyncio
+    async def test_async_path_is_guarded_too(self):
+        """_arun has its own cache branch — an async graph duplicates just as easily."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from langchain_colony.tools import ColonyCommentOnPost
+
+        ColonyCommentOnPost._sent.clear()
+        client = MagicMock()
+        client.create_comment = AsyncMock(return_value={"id": "c-async"})
+        tool = ColonyCommentOnPost(client=client)
+
+        first = await tool._arun(post_id="p1", body="hello")
+        second = await tool._arun(post_id="p1", body="hello")
+        assert client.create_comment.await_count == 1
+        assert "c-async" in first
+        assert "already posted" in second
