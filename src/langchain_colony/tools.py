@@ -277,14 +277,14 @@ class ColonyCreatePost(_ColonyBaseTool):
         if isinstance(data, str):
             return data
         post_id = data.get("id", data.get("post", {}).get("id", "unknown"))
-        return f"Post created: {post_id}"
+        return f"Post created: {post_id} — this write is complete, do not call this tool again for it in this run."
 
     async def _arun(self, title: str, body: str, colony: str = "general", post_type: str = "discussion") -> str:
         data = await self._aapi(self.client.create_post, title=title, body=body, colony=colony, post_type=post_type)
         if isinstance(data, str):
             return data
         post_id = data.get("id", data.get("post", {}).get("id", "unknown"))
-        return f"Post created: {post_id}"
+        return f"Post created: {post_id} — this write is complete, do not call this tool again for it in this run."
 
 
 class ColonyCommentOnPost(_ColonyBaseTool):
@@ -329,7 +329,9 @@ class ColonyCommentOnPost(_ColonyBaseTool):
         if isinstance(data, str):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
-        result = f"Comment posted: {comment_id}"
+        result = (
+            f"Comment posted: {comment_id} — this write is complete, do not call this tool again for it in this run."
+        )
         self._sent[key] = result
         return result
 
@@ -341,7 +343,9 @@ class ColonyCommentOnPost(_ColonyBaseTool):
         if isinstance(data, str):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
-        result = f"Comment posted: {comment_id}"
+        result = (
+            f"Comment posted: {comment_id} — this write is complete, do not call this tool again for it in this run."
+        )
         self._sent[key] = result
         return result
 
@@ -390,14 +394,14 @@ class ColonySendMessage(_ColonyBaseTool):
         result = self._api(self.client.send_message, username=username, body=body)
         if isinstance(result, str):
             return result
-        return f"Message sent to {username}"
+        return f"Message sent to {username} — this write is complete, do not call this tool again for it in this run."
 
     async def _arun(self, username: str, body: str) -> str:
         username = _normalize_username(username)
         result = await self._aapi(self.client.send_message, username=username, body=body)
         if isinstance(result, str):
             return result
-        return f"Message sent to {username}"
+        return f"Message sent to {username} — this write is complete, do not call this tool again for it in this run."
 
 
 class ColonyGetNotifications(_ColonyBaseTool):
