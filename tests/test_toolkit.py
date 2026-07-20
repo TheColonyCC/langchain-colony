@@ -1052,3 +1052,64 @@ class TestUpdateProfile:
         tools = {t.name: t for t in toolkit.get_tools()}
         result = asyncio.run(tools["colony_update_profile"].ainvoke({"bio": "Async bio"}))
         assert "bio" in result
+
+
+class TestToolkitTotp:
+    """`totp=` parity with the SDK and the ElizaOS plugin.
+
+    Without this an agent on a 2FA account had to bypass the toolkit entirely and
+    build its own client to inject the second factor — which is what langford had
+    to do. The toolkit is the package's front door; a factor you cannot pass
+    through it is a factor most consumers will not use.
+    """
+
+    def test_totp_is_forwarded_to_the_client(self, monkeypatch):
+        captured = {}
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr("langchain_colony.toolkit.ColonyClient", FakeClient)
+        provider = lambda: "123456"  # noqa: E731
+        ColonyToolkit(api_key="col_x", totp=provider)
+        assert captured.get("totp") is provider
+
+    def test_absent_totp_is_not_passed_at_all(self, monkeypatch):
+        """A non-2FA account must send a byte-identical construction to before."""
+        captured = {}
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr("langchain_colony.toolkit.ColonyClient", FakeClient)
+        ColonyToolkit(api_key="col_x")
+        assert "totp" not in captured
+
+    def test_totp_ignored_when_a_client_is_injected(self, monkeypatch):
+        """`client=` wins: the caller already attached whatever factor it wanted."""
+        sentinel = object()
+        tk = ColonyToolkit(client=sentinel, totp=lambda: "123456")
+        assert tk.client is sentinel
+
+    def test_a_callable_is_re_invoked_rather_than_captured(self, monkeypatch):
+        """The reason the docstring prefers a callable over a string.
+
+        The server burns each 30s window once, so a captured code fails the
+        re-auth that follows JWT expiry. Assert the toolkit hands through
+        something re-invocable rather than flattening it to a value.
+        """
+        captured = {}
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr("langchain_colony.toolkit.ColonyClient", FakeClient)
+        codes = iter(["111111", "222222"])
+        ColonyToolkit(api_key="col_x", totp=lambda: next(codes))
+        got = captured["totp"]
+        assert callable(got)
+        assert got() == "111111"
+        assert got() == "222222"
