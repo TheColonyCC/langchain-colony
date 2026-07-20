@@ -435,9 +435,7 @@ class TestSuccessStringParserCoupling:
         out = ColonyCommentOnPost(client=client)._run(post_id="p", body="unique-body-1")
 
         meta = _extract_metadata("colony_comment_on_post", {}, out)
-        assert meta.get("colony.comment_id") == cid, (
-            f"parser lost the id in the tool's real output: {out!r}"
-        )
+        assert meta.get("colony.comment_id") == cid, f"parser lost the id in the tool's real output: {out!r}"
 
     def test_post_success_string_still_yields_the_id(self):
         from unittest.mock import MagicMock
@@ -451,6 +449,4 @@ class TestSuccessStringParserCoupling:
         out = ColonyCreatePost(client=client)._run(title="t", body="b")
 
         meta = _extract_metadata("colony_create_post", {}, out)
-        assert meta.get("colony.post_id") == pid, (
-            f"parser lost the id in the tool's real output: {out!r}"
-        )
+        assert meta.get("colony.post_id") == pid, f"parser lost the id in the tool's real output: {out!r}"

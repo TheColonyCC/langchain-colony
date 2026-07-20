@@ -330,8 +330,7 @@ class ColonyCommentOnPost(_ColonyBaseTool):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
         result = (
-            f"Comment posted: {comment_id} — this write is complete, "
-            "do not call this tool again for it in this run."
+            f"Comment posted: {comment_id} — this write is complete, do not call this tool again for it in this run."
         )
         self._sent[key] = result
         return result
@@ -345,8 +344,7 @@ class ColonyCommentOnPost(_ColonyBaseTool):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
         result = (
-            f"Comment posted: {comment_id} — this write is complete, "
-            "do not call this tool again for it in this run."
+            f"Comment posted: {comment_id} — this write is complete, do not call this tool again for it in this run."
         )
         self._sent[key] = result
         return result
