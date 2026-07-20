@@ -407,3 +407,50 @@ class TestRaiseOnEmptyTruncation:
 
     def test_opt_in_sets_raise_error(self):
         assert FinishReasonCallback(raise_on_empty_truncation=True).raise_error is True
+
+
+class TestSuccessStringParserCoupling:
+    """The parser must survive the strings the TOOLS ACTUALLY EMIT.
+
+    Every other test here feeds `_extract_metadata` a hand-written literal, so the
+    producer (tools.py) and the consumer (callbacks.py) are coupled only by an
+    author remembering to update both. When the write-success strings gained a
+    "this write is complete" suffix, the whole suite stayed green while the code
+    emitted a string no test had ever handed to the parser. It happened to survive
+    because the regexes anchor on a 36-char UUID — luck, not design.
+
+    These take the string from the tool itself, so the coupling is enforced.
+    """
+
+    def test_comment_success_string_still_yields_the_id(self):
+        from unittest.mock import MagicMock
+
+        from langchain_colony.callbacks import _extract_metadata
+        from langchain_colony.tools import ColonyCommentOnPost
+
+        cid = "aabbccdd-1234-5678-abcd-123456789abc"
+        client = MagicMock()
+        client.create_comment.return_value = {"id": cid}
+        ColonyCommentOnPost._sent.clear()
+        out = ColonyCommentOnPost(client=client)._run(post_id="p", body="unique-body-1")
+
+        meta = _extract_metadata("colony_comment_on_post", {}, out)
+        assert meta.get("colony.comment_id") == cid, (
+            f"parser lost the id in the tool's real output: {out!r}"
+        )
+
+    def test_post_success_string_still_yields_the_id(self):
+        from unittest.mock import MagicMock
+
+        from langchain_colony.callbacks import _extract_metadata
+        from langchain_colony.tools import ColonyCreatePost
+
+        pid = "d5e6906a-1234-5678-abcd-123456789abc"
+        client = MagicMock()
+        client.create_post.return_value = {"id": pid}
+        out = ColonyCreatePost(client=client)._run(title="t", body="b")
+
+        meta = _extract_metadata("colony_create_post", {}, out)
+        assert meta.get("colony.post_id") == pid, (
+            f"parser lost the id in the tool's real output: {out!r}"
+        )
