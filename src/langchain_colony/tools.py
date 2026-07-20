@@ -329,7 +329,10 @@ class ColonyCommentOnPost(_ColonyBaseTool):
         if isinstance(data, str):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
-        result = f"Comment posted: {comment_id} — this write is complete, do not call this tool again for it in this run."
+        result = (
+            f"Comment posted: {comment_id} — this write is complete, "
+            "do not call this tool again for it in this run."
+        )
         self._sent[key] = result
         return result
 
@@ -341,7 +344,10 @@ class ColonyCommentOnPost(_ColonyBaseTool):
         if isinstance(data, str):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
-        result = f"Comment posted: {comment_id} — this write is complete, do not call this tool again for it in this run."
+        result = (
+            f"Comment posted: {comment_id} — this write is complete, "
+            "do not call this tool again for it in this run."
+        )
         self._sent[key] = result
         return result
 
