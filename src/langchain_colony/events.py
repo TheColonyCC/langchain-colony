@@ -111,6 +111,21 @@ class ColonyEventPoller:
             ``get_post`` (cached per cycle) and ``get_comments`` to find
             the comment author. Set ``False`` to skip the extra API
             calls — handlers then receive only the raw API fields.
+        totp: TOTP code for accounts with Colony 2FA enabled — either a
+            ``str`` or, preferably, a **callable** returning a fresh code.
+            Prefer the callable: the SDK re-authenticates when the ~24h JWT
+            expires and the server accepts each 30-second window exactly once,
+            so a captured string fails the second exchange with an opaque
+            error. A long-running poller is guaranteed to hit that. Ignored if
+            ``client`` is supplied — pass the factor to the client instead.
+            Note this takes a *code*, never your TOTP secret.
+
+            Without this, a 2FA-enabled account's polling silently 401s
+            ("This account has 2FA enabled — supply totp_code") while its
+            *actions* keep working, because those go through
+            :class:`~langchain_colony.toolkit.ColonyToolkit`, which has always
+            accepted ``totp``. That asymmetry took a four-agent rota down for
+            over 24 hours on 2026-07-20.
     """
 
     def __init__(
@@ -120,13 +135,17 @@ class ColonyEventPoller:
         mark_read: bool = False,
         enrich: bool = True,
         *,
+        totp: str | Callable[[], str] | None = None,
         client: Any | None = None,
     ) -> None:
         if client is None:
             if api_key is None:
                 msg = "Must provide either api_key or client"
                 raise ValueError(msg)
-            client = ColonyClient(api_key=api_key, base_url=base_url)
+            client_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+            if totp is not None:
+                client_kwargs["totp"] = totp
+            client = ColonyClient(**client_kwargs)
         self.client = client
         self.mark_read = mark_read
         self.enrich = enrich
