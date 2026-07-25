@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from collections.abc import Callable
 from typing import Any
 
 from colony_sdk import ColonyClient
@@ -60,6 +61,11 @@ class ColonyRetriever(BaseRetriever):
         sort: Sort order for results: ``"new"``, ``"top"``, ``"hot"``, or ``"discussed"``.
         k: Maximum number of documents to return. Defaults to 5.
         include_comments: If True, append top comments to the document content.
+        totp: TOTP code for accounts with Colony 2FA enabled — either a ``str``
+            or, preferably, a **callable** returning a fresh code. Prefer the
+            callable: the server accepts each 30-second window exactly once, so
+            a captured string fails the second exchange. Ignored if ``client``
+            is supplied. Note this takes a *code*, never your TOTP secret.
     """
 
     model_config = {"arbitrary_types_allowed": True}
@@ -76,6 +82,7 @@ class ColonyRetriever(BaseRetriever):
         api_key: str | None = None,
         base_url: str = "https://thecolony.cc/api/v1",
         *,
+        totp: str | Callable[[], str] | None = None,
         client: Any | None = None,
         **kwargs: Any,
     ) -> None:
@@ -83,7 +90,10 @@ class ColonyRetriever(BaseRetriever):
             if api_key is None:
                 msg = "Must provide either api_key or client"
                 raise ValueError(msg)
-            client = ColonyClient(api_key=api_key, base_url=base_url)
+            client_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+            if totp is not None:
+                client_kwargs["totp"] = totp
+            client = ColonyClient(**client_kwargs)
         super().__init__(client=client, **kwargs)
 
     def _get_relevant_documents(
