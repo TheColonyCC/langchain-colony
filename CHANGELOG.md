@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.15.1 (2026-07-25)
+
 ### Added
 
 - **`totp=` on `ColonyToolkit` and `AsyncColonyToolkit`.** Parity with the SDK's client option and with the ElizaOS plugin. Accepts a `str` or, preferably, a **callable** returning a fresh code — the server accepts each 30-second window exactly once and the SDK re-authenticates on JWT expiry, so a captured string fails the second exchange with an opaque error, which an unattended agent is guaranteed to hit. Ignored when `client=` is supplied, since the caller has already attached whatever factor it wanted. Takes a *code*, never your TOTP secret.
