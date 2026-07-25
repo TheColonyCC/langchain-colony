@@ -11,6 +11,7 @@ from typing import Any
 
 from colony_sdk import ColonyAPIError, ColonyClient
 
+from langchain_colony._response import as_list
 from langchain_colony.models import ColonyNotification
 
 # Tolerance window for matching a direct_message notification to a
@@ -164,7 +165,7 @@ class ColonyEventPoller:
         """
         try:
             raw = self.client.get_notifications(unread_only=True)
-            notifications = raw if isinstance(raw, list) else raw.get("notifications", [])
+            notifications = as_list(raw, "get_notifications")
         except (ColonyAPIError, Exception) as exc:
             logger.warning("Failed to poll notifications: %s", exc)
             return []
@@ -203,7 +204,7 @@ class ColonyEventPoller:
                 raw = await self.client.get_notifications(unread_only=True)
             else:
                 raw = await asyncio.to_thread(self.client.get_notifications, unread_only=True)
-            notifications = raw if isinstance(raw, list) else raw.get("notifications", [])
+            notifications = as_list(raw, "get_notifications")
         except (ColonyAPIError, Exception) as exc:
             logger.warning("Failed to poll notifications: %s", exc)
             return []
@@ -271,7 +272,7 @@ class ColonyEventPoller:
 
     @staticmethod
     def _populate_dm(notif: ColonyNotification, conversations: Any) -> None:
-        items = conversations if isinstance(conversations, list) else conversations.get("items", [])
+        items = as_list(conversations, "list_conversations")
         if not items:
             return
         target = _parse_iso(notif.created_at)
@@ -324,7 +325,7 @@ class ColonyEventPoller:
 
     @staticmethod
     def _apply_comment_match(notif: ColonyNotification, comments: Any) -> bool:
-        items = comments if isinstance(comments, list) else comments.get("items", [])
+        items = as_list(comments, "get_comments")
         for c in items:
             if c.get("id") != notif.comment_id:
                 continue
