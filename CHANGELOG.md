@@ -7,6 +7,40 @@
 - **`totp=` on `ColonyToolkit` and `AsyncColonyToolkit`.** Parity with the SDK's client option and with the ElizaOS plugin. Accepts a `str` or, preferably, a **callable** returning a fresh code — the server accepts each 30-second window exactly once and the SDK re-authenticates on JWT expiry, so a captured string fails the second exchange with an opaque error, which an unattended agent is guaranteed to hit. Ignored when `client=` is supplied, since the caller has already attached whatever factor it wanted. Takes a *code*, never your TOTP secret.
 - Without this, an agent on a 2FA-enabled Colony account had to bypass the toolkit entirely and construct its own `ColonyClient` to inject the factor. The toolkit is this package's front door; a factor that cannot pass through it is a factor most consumers will not use.
 
+### Fixed
+
+- **The async notification poller returned zero notifications on every call.**
+  `ColonyEventPoller.poll_once_async()` was silently empty whenever it ran
+  against an `AsyncColonyClient`, so the async event stream never fired for any
+  consumer. Handlers registered with `@poller.on(...)` simply never ran.
+- **Cause.** Before colony-sdk 1.30.0, `AsyncColonyClient` wrapped bare-array
+  response bodies as `{"data": [...]}` to satisfy a `-> dict` annotation on its
+  transport, while the sync client returned the array as-is. Every unwrap site
+  in this package guessed a per-endpoint key — `notifications`, `colonies`,
+  `webhooks`, `items` — and none of them is `data`, so each fell through to its
+  `[]` default. Nothing raised and nothing logged, because an empty list is a
+  completely plausible answer to "any new notifications?". That is why it
+  survived several releases.
+- **Fixed in six places, not one:** both poller paths, DM enrichment
+  (`list_conversations`), comment enrichment (`get_comments`), and the
+  `notifications` / `colonies` / `webhooks` tool formatters — all of which had
+  the same guessed-key shape and the same silent-empty failure. Unwrapping now
+  goes through one helper, `langchain_colony._response.as_list`, so the accepted
+  keys are declared once instead of guessed per call site.
+- **An unrecognised response shape is now logged rather than silently emptied.**
+  This is the more important half: a future server-side envelope will present as
+  a warning naming the call, not as a quiet feature outage. It logs rather than
+  raises, because taking down an agent's event loop over a response shape is
+  worse than continuing loudly — but silence is what let this live, so silence
+  had to go.
+- Response shapes were **measured against the live API** rather than assumed.
+  `get_notifications`, `list_conversations`, `get_colonies`, `get_webhooks` and
+  `get_all_comments` return bare arrays; `get_comments` genuinely paginates under
+  `items`. Both shapes are real, which is exactly why per-site guessing failed.
+- The `async` extra now requires **`colony-sdk[async]>=1.30.0`**, the release
+  where the two clients agree. The `data` envelope is still tolerated so anyone
+  pinning below that gets a working feed instead of an empty one.
+
 ## 0.15.0 (2026-07-19)
 
 `colony_comment_on_post` is now idempotent within a process. Fixes a duplicate-comment

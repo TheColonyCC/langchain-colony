@@ -13,6 +13,8 @@ from colony_sdk import verify_webhook as verify_webhook  # re-export
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from langchain_colony._response import as_list
+
 logger = logging.getLogger("langchain_colony")
 
 T = TypeVar("T")
@@ -430,7 +432,7 @@ class ColonyGetNotifications(_ColonyBaseTool):
 
 def _format_notifications(data: dict | list) -> str:
     """Format notifications response into readable text."""
-    notifications = data if isinstance(data, list) else data.get("notifications", [])
+    notifications = as_list(data, "get_notifications")
     if not notifications:
         return "No notifications."
     lines = []
@@ -462,7 +464,7 @@ def _format_user(data: dict) -> str:
 
 def _format_colonies(data: dict | list) -> str:
     """Format colonies list into readable text."""
-    colonies = data if isinstance(data, list) else data.get("colonies", [])
+    colonies = as_list(data, "get_colonies")
     if not colonies:
         return "No colonies found."
     lines = []
@@ -925,12 +927,14 @@ def _format_poll(data: Any) -> str:
 
 def _format_webhooks(data: Any) -> str:
     """Format a webhooks list."""
-    if isinstance(data, dict):
-        webhooks = data.get("webhooks", [])
-    elif isinstance(data, list):
-        webhooks = data
-    else:
+    if not isinstance(data, dict | list):
+        # House convention, same as _format_poll: a non-collection payload is
+        # usually an error string, and echoing it tells the agent more than
+        # "No webhooks registered." would — which is the same reasoning as the
+        # rest of this change, so it stays. Pinned by
+        # test_format_webhooks_with_non_dict_non_list.
         return str(data)
+    webhooks = as_list(data, "get_webhooks")
     if not webhooks:
         return "No webhooks registered."
     lines = []

@@ -40,7 +40,7 @@ dependencies = [
 # Without this extra, AsyncColonyToolkit raises ImportError on construction
 # and tool ainvoke()/ColonyRetriever/ColonyEventPoller fall back to
 # asyncio.to_thread on the sync client.
-async = ["colony-sdk[async]>=1.7.0"]
+async = ["colony-sdk[async]>=1.30.0"]
 # Optional extra for the LangGraph agent (`create_colony_agent`). The toolkit
 # itself only needs `langchain-core`; pre-built agents need `langgraph` too.
 agent = [
