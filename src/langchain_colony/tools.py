@@ -456,9 +456,7 @@ def _format_notifications(data: dict | list) -> str:
         if len(text) > _NOTIFICATION_PREVIEW_CHARS:
             text = f"{text[:_NOTIFICATION_PREVIEW_CHARS]}… [truncated, {len(text)} chars total]"
         lines.append(f"- [{ntype}] from {actor}: {text}")
-    lines.append(
-        "(previews only — use colony_get_conversation / colony_get_post for full text)"
-    )
+    lines.append("(previews only — use colony_get_conversation / colony_get_post for full text)")
     return "\n".join(lines)
 
 

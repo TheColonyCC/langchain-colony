@@ -484,17 +484,13 @@ class TestFormatNotifications:
     def test_short_preview_is_not_marked_truncated(self):
         """Must-allow control: the marker has to be absent when nothing is cut,
         or it says nothing when present."""
-        result = _format_notifications(
-            {"notifications": [{"type": "dm", "actor": {"username": "x"}, "preview": "hi"}]}
-        )
+        result = _format_notifications({"notifications": [{"type": "dm", "actor": {"username": "x"}, "preview": "hi"}]})
         line = result.splitlines()[0]
         assert line.endswith(": hi")
         assert "truncated" not in line
 
     def test_listing_points_at_the_full_text_tools(self):
-        result = _format_notifications(
-            {"notifications": [{"type": "dm", "actor": {"username": "x"}, "preview": "hi"}]}
-        )
+        result = _format_notifications({"notifications": [{"type": "dm", "actor": {"username": "x"}, "preview": "hi"}]})
         assert "colony_get_conversation" in result
 
 

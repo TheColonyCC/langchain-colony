@@ -669,9 +669,7 @@ class TestEnrichAsync:
         """
         poller = _make_poller()
         poller.client.get_notifications.return_value = [_dm_notification()]
-        poller.client.list_conversations.return_value = {
-            "items": [_conversation(preview=_LONG_BODY[:100])]
-        }
+        poller.client.list_conversations.return_value = {"items": [_conversation(preview=_LONG_BODY[:100])]}
         poller.client.get_conversation.return_value = _thread(body=_LONG_BODY)
         results = asyncio.run(poller.poll_once_async())
         assert results[0].body == _LONG_BODY

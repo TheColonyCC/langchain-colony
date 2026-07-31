@@ -377,7 +377,7 @@ class ColonyEventPoller:
             return
         try:
             thread = self.client.get_conversation(username)
-        except (ColonyAPIError, Exception) as exc:  # noqa: BLE001 - logged, never fatal
+        except (ColonyAPIError, Exception) as exc:
             logger.warning("Failed to fetch full DM body from %s: %s", username, exc)
             notif.body = best.get("last_message_preview") or None
             notif.body_truncated = notif.body is not None
@@ -396,7 +396,7 @@ class ColonyEventPoller:
             return
         try:
             thread = await self._call_async(self.client.get_conversation, username)
-        except (ColonyAPIError, Exception) as exc:  # noqa: BLE001 - logged, never fatal
+        except (ColonyAPIError, Exception) as exc:
             logger.warning("Failed to fetch full DM body from %s: %s", username, exc)
             notif.body = best.get("last_message_preview") or None
             notif.body_truncated = notif.body is not None
