@@ -441,6 +441,40 @@ class TestEnrichDirectMessage:
         assert n.body == "clipped…"
         assert n.body_truncated is True
 
+    def test_dm_falls_back_when_the_match_has_no_username(self):
+        """A conversation can match on timestamp yet carry no username.
+
+        There is nothing to call `get_conversation` with, so the preview is all
+        we have — and it must be flagged, not passed off as the message.
+        """
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        conv = _conversation(preview="clipped…")
+        conv["other_user"] = {"id": "u-cone"}  # no username
+        poller.client.list_conversations.return_value = {"items": [conv]}
+        n = poller.poll_once()[0]
+        assert n.body == "clipped…"
+        assert n.body_truncated is True
+        poller.client.get_conversation.assert_not_called()
+
+    def test_dm_skips_thread_messages_with_unparseable_timestamps(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation()]}
+        thread = _thread(body=_LONG_BODY, include_own_reply=False)
+        thread["messages"].insert(
+            0,
+            {
+                "id": "m-bad",
+                "sender": {"id": "u-cone", "username": "colonist-one"},
+                "body": "undateable, must not win",
+                "created_at": "not-a-date",
+            },
+        )
+        poller.client.get_conversation.return_value = thread
+        n = poller.poll_once()[0]
+        assert n.body == _LONG_BODY
+
     def test_dm_handles_bare_list_thread(self):
         poller = _make_poller()
         poller.client.get_notifications.return_value = [_dm_notification()]
@@ -698,6 +732,17 @@ class TestEnrichAsync:
         results = asyncio.run(poller.poll_once_async())
         assert results[0].body == _LONG_BODY
         assert results[0].body_truncated is False
+
+    def test_async_dm_falls_back_when_the_match_has_no_username(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        conv = _conversation(preview="clipped…")
+        conv["other_user"] = {"id": "u-cone"}  # no username
+        poller.client.list_conversations.return_value = {"items": [conv]}
+        results = asyncio.run(poller.poll_once_async())
+        assert results[0].body == "clipped…"
+        assert results[0].body_truncated is True
+        poller.client.get_conversation.assert_not_called()
 
     def test_async_dm_falls_back_to_preview_and_flags_it(self):
         poller = _make_poller()
