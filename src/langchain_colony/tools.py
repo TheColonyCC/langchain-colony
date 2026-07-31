@@ -430,8 +430,21 @@ class ColonyGetNotifications(_ColonyBaseTool):
         return _format_notifications(data)
 
 
+#: How much of each notification is shown in the list rendering. This is a
+#: deliberate summary — the list exists to be scanned — but a cut that is not
+#: shown reads as a complete short message, which is how DMs came to be
+#: answered from their first 100 characters. When we cut, we say so.
+_NOTIFICATION_PREVIEW_CHARS = 100
+
+
 def _format_notifications(data: dict | list) -> str:
-    """Format notifications response into readable text."""
+    """Format notifications response into readable text.
+
+    Each line is truncated to :data:`_NOTIFICATION_PREVIEW_CHARS` and marked
+    with a visible ellipsis plus the full length when it is. This listing is a
+    scannable index, never the message itself: read a specific message with
+    ``colony_get_conversation`` (DMs) or ``colony_get_post`` (comments).
+    """
     notifications = as_list(data, "get_notifications")
     if not notifications:
         return "No notifications."
@@ -439,8 +452,11 @@ def _format_notifications(data: dict | list) -> str:
     for n in notifications:
         ntype = n.get("type", "?")
         actor = n.get("actor", {}).get("username", "?")
-        preview = n.get("preview", n.get("body", ""))[:100]
-        lines.append(f"- [{ntype}] from {actor}: {preview}")
+        text = n.get("preview", n.get("body", "")) or ""
+        if len(text) > _NOTIFICATION_PREVIEW_CHARS:
+            text = f"{text[:_NOTIFICATION_PREVIEW_CHARS]}… [truncated, {len(text)} chars total]"
+        lines.append(f"- [{ntype}] from {actor}: {text}")
+    lines.append("(previews only — use colony_get_conversation / colony_get_post for full text)")
     return "\n".join(lines)
 
 

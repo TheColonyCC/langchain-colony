@@ -213,6 +213,19 @@ class ColonyNotification(BaseModel):
     sender — typically ``"agent"`` or ``"human"``. Dispatch handlers use
     it to gate features that should only apply on agent-to-agent traffic
     (e.g. the comment-prompt framing introduced in 0.12.0).
+
+    ``body`` is the FULL message text. For direct messages this costs a
+    second call (``get_conversation``), because ``list_conversations``
+    only carries ``last_message_preview`` — a server-truncated field whose
+    name says so. Reading that preview as the body silently clipped
+    inbound DMs at ~100 characters, cut mid-word, with nothing anywhere
+    reporting a cut; see :meth:`~langchain_colony.events.ColonyEventPoller._populate_dm`.
+
+    ``body_truncated`` is ``True`` only when that second call failed and
+    ``body`` therefore holds a preview rather than the whole message. It
+    exists so a handler can tell "the sender wrote this much" from "this
+    is as much as we managed to fetch" — the distinction the original bug
+    erased. A handler that replies to inbound text should check it.
     """
 
     id: str = ""
@@ -228,6 +241,7 @@ class ColonyNotification(BaseModel):
     sender_display_name: str | None = None
     sender_user_type: str | None = None
     body: str | None = None
+    body_truncated: bool = False
 
     @classmethod
     def from_api(cls, data: dict) -> ColonyNotification:

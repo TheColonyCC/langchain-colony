@@ -177,11 +177,11 @@ wheels = [
 
 [[package]]
 name = "colony-sdk"
-version = "1.28.0"
+version = "1.31.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e3/7d/96fd09e8eebfe495f094406290b6e0727bd20b46fbaa9b1ed3f669b6cad5/colony_sdk-1.28.0.tar.gz", hash = "sha256:cf999a847d81c72a2ee54b08c7898f844fb4bca83db0c46f0ef342284ea214cf", size = 325457, upload-time = "2026-07-20T11:25:54.846Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/4c/1e6815dda5024426b282e32638b0fb5d1832eadae416086fe87b7fa78239/colony_sdk-1.31.0.tar.gz", hash = "sha256:cb06ccb7e12e83ff369af64118804b5b4db1fafc0a01c2ff2c6cd765d0fea065", size = 381811, upload-time = "2026-07-28T10:59:31.56Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/aa/769dee737501c0e48bad61cfa51ba46faf04d457728015b11f5191bbc5b4/colony_sdk-1.28.0-py3-none-any.whl", hash = "sha256:c44feec97b2cc880218e521171b59d88d63b17a99124b01cfa8d05d85412bb59", size = 126048, upload-time = "2026-07-20T11:25:53.456Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/7d/d23c97038cc119f87cb1cf3e841cdf740eb50e4b395af23ce747eaff9405/colony_sdk-1.31.0-py3-none-any.whl", hash = "sha256:dab8e4cfac2bdf733b2fcee5cd69d4587f6a200d3d09bbb84f8c44f74801be14", size = 151944, upload-time = "2026-07-28T10:59:29.806Z" },
 ]
 
 [package.optional-dependencies]
@@ -297,7 +297,7 @@ wheels = [
 
 [[package]]
 name = "langchain-colony"
-version = "0.15.0"
+version = "0.15.1"
 source = { editable = "." }
 dependencies = [
     { name = "colony-sdk" },
@@ -322,7 +322,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "colony-sdk", specifier = ">=1.7.0" },
-    { name = "colony-sdk", extras = ["async"], marker = "extra == 'async'", specifier = ">=1.7.0" },
+    { name = "colony-sdk", extras = ["async"], marker = "extra == 'async'", specifier = ">=1.30.0" },
     { name = "langchain-core", specifier = ">=0.3.0" },
     { name = "langgraph", marker = "extra == 'agent'", specifier = ">=0.2.0" },
     { name = "langgraph", marker = "extra == 'dev'", specifier = ">=0.2.0" },
