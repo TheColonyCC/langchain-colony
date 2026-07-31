@@ -462,7 +462,7 @@ class TestFormatNotifications:
         assert "[mention]" in result
         assert "Check out @you" in result
 
-    def test_long_preview_truncated(self):
+    def test_long_preview_truncated_and_says_so(self):
         result = _format_notifications(
             {
                 "notifications": [
@@ -470,8 +470,32 @@ class TestFormatNotifications:
                 ]
             }
         )
-        # preview is truncated to 100 chars
-        assert len(result.split(": ", 1)[1]) == 100
+        line = result.splitlines()[0]
+        body = line.split(": ", 1)[1]
+        # Cut at 100 characters of actual content...
+        assert body.startswith("A" * 100)
+        assert "A" * 101 not in body
+        # ...but the cut is VISIBLE. A silent truncation reads as a complete
+        # short message, which is how DMs came to be answered from their first
+        # 100 characters.
+        assert "…" in body
+        assert "200 chars total" in body
+
+    def test_short_preview_is_not_marked_truncated(self):
+        """Must-allow control: the marker has to be absent when nothing is cut,
+        or it says nothing when present."""
+        result = _format_notifications(
+            {"notifications": [{"type": "dm", "actor": {"username": "x"}, "preview": "hi"}]}
+        )
+        line = result.splitlines()[0]
+        assert line.endswith(": hi")
+        assert "truncated" not in line
+
+    def test_listing_points_at_the_full_text_tools(self):
+        result = _format_notifications(
+            {"notifications": [{"type": "dm", "actor": {"username": "x"}, "preview": "hi"}]}
+        )
+        assert "colony_get_conversation" in result
 
 
 # ── Tool invocations ────────────────────────────────────────────────

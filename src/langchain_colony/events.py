@@ -283,20 +283,27 @@ class ColonyEventPoller:
                 if notif.notification_type in _ENRICH_TYPES_DM:
                     if conversations is None:
                         conversations = await self._call_async(self.client.list_conversations)
-                    self._populate_dm(notif, conversations)
+                    await self._populate_dm_async(notif, conversations)
                 elif notif.notification_type in _ENRICH_TYPES_COMMENT:
                     await self._populate_comment_async(notif, posts_cache)
             except (ColonyAPIError, Exception) as exc:
                 logger.warning("Failed to enrich notification %s: %s", notif.id, exc)
 
     @staticmethod
-    def _populate_dm(notif: ColonyNotification, conversations: Any) -> None:
+    def _match_dm(notif: ColonyNotification, conversations: Any) -> dict | None:
+        """Find the conversation a DM notification belongs to and populate
+        ``sender_*`` from it.
+
+        Returns the matched conversation so the caller can fetch the full
+        message body, or ``None`` when nothing matched within
+        :data:`_DM_MATCH_TOLERANCE_SEC`.
+        """
         items = as_list(conversations, "list_conversations")
         if not items:
-            return
+            return None
         target = _parse_iso(notif.created_at)
         if target is None:
-            return
+            return None
         best: dict | None = None
         best_delta: float | None = None
         for conv in items:
@@ -308,13 +315,93 @@ class ColonyEventPoller:
                 best = conv
                 best_delta = delta
         if best is None or best_delta is None or best_delta > _DM_MATCH_TOLERANCE_SEC:
-            return
+            return None
         other = best.get("other_user") or {}
         notif.sender_id = other.get("id") or None
         notif.sender_username = other.get("username") or None
         notif.sender_display_name = other.get("display_name") or None
         notif.sender_user_type = other.get("user_type") or None
-        notif.body = best.get("last_message_preview") or None
+        return best
+
+    @staticmethod
+    def _apply_dm_body(notif: ColonyNotification, conversation: dict, thread: Any) -> None:
+        """Set ``notif.body`` to the newest inbound message in ``thread``.
+
+        Falls back to the conversation's ``last_message_preview`` — flagging
+        ``body_truncated`` — when the thread yields nothing usable.
+        """
+        messages = as_list(thread, "get_conversation")
+        # Prefer messages FROM the other party: a DM notification is about what
+        # they sent, and the thread also contains our own replies. Fall back to
+        # the whole thread if the sender is unknown or nothing matches, so a
+        # shape change degrades to "possibly the wrong message" rather than
+        # "no message at all".
+        inbound = [m for m in messages if (m.get("sender") or {}).get("id") == notif.sender_id]
+        candidates = inbound or list(messages)
+        newest: dict | None = None
+        newest_ts: datetime | None = None
+        for m in candidates:
+            ts = _parse_iso(m.get("created_at", ""))
+            if ts is None:
+                continue
+            if newest_ts is None or ts > newest_ts:
+                newest, newest_ts = m, ts
+        body = (newest or {}).get("body")
+        if body:
+            notif.body = body
+            notif.body_truncated = False
+            return
+        notif.body = conversation.get("last_message_preview") or None
+        notif.body_truncated = notif.body is not None
+
+    def _populate_dm(self, notif: ColonyNotification, conversations: Any) -> None:
+        """Populate a DM notification with the sender and the FULL message.
+
+        ``list_conversations`` carries only ``last_message_preview``, which the
+        server truncates. Using it as the body clipped inbound DMs at ~100
+        characters, mid-word, and reported nothing — the reply was written from
+        a fraction of what the sender wrote. The preview is a summary of the
+        message, not the message, and its name says so.
+
+        So the body costs a second call. If that call fails we keep the preview
+        rather than dropping the notification, but mark ``body_truncated`` so a
+        handler can tell a short message from a clipped one.
+        """
+        best = self._match_dm(notif, conversations)
+        if best is None:
+            return
+        username = notif.sender_username
+        if not username:
+            notif.body = best.get("last_message_preview") or None
+            notif.body_truncated = notif.body is not None
+            return
+        try:
+            thread = self.client.get_conversation(username)
+        except (ColonyAPIError, Exception) as exc:  # noqa: BLE001 - logged, never fatal
+            logger.warning("Failed to fetch full DM body from %s: %s", username, exc)
+            notif.body = best.get("last_message_preview") or None
+            notif.body_truncated = notif.body is not None
+            return
+        self._apply_dm_body(notif, best, thread)
+
+    async def _populate_dm_async(self, notif: ColonyNotification, conversations: Any) -> None:
+        """Async version of :meth:`_populate_dm`."""
+        best = self._match_dm(notif, conversations)
+        if best is None:
+            return
+        username = notif.sender_username
+        if not username:
+            notif.body = best.get("last_message_preview") or None
+            notif.body_truncated = notif.body is not None
+            return
+        try:
+            thread = await self._call_async(self.client.get_conversation, username)
+        except (ColonyAPIError, Exception) as exc:  # noqa: BLE001 - logged, never fatal
+            logger.warning("Failed to fetch full DM body from %s: %s", username, exc)
+            notif.body = best.get("last_message_preview") or None
+            notif.body_truncated = notif.body is not None
+            return
+        self._apply_dm_body(notif, best, thread)
 
     def _populate_comment(self, notif: ColonyNotification, posts_cache: dict[str, dict]) -> None:
         if not notif.post_id:
