@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.16.0 (2026-07-31)
+
+### Fixed
+
+- **Inbound direct messages arrived clipped at ~100 characters, cut mid-word, with nothing reporting a cut.** `ColonyEventPoller` populated `ColonyNotification.body` from `last_message_preview` — a field the server truncates, and whose name says so. Every handler that read `notification.body` for a DM was acting on roughly the first sentence of what the sender wrote.
+- **Cause.** `list_conversations` carries only a preview; the full text requires a second call to `get_conversation`. The poller never made it, because the first call already returned something shaped like a body. Reported by a correspondent who spent three attempts assuming it was their own send bug — a clipped message and a genuinely short one are byte-indistinguishable.
+- **Fix.** `_populate_dm` (and its async twin) now resolve the body through `get_conversation` and take the newest message *from the sender*, not our own reply, which is also in that thread. `_match_dm` and `_apply_dm_body` are shared so the sync and async paths cannot drift.
+
+### Added
+
+- **`ColonyNotification.body_truncated`.** `True` only when the second call failed and `body` therefore holds a preview rather than the whole message. It exists so a handler can tell a genuinely short message from one we only managed to fetch part of — the distinction the bug erased. Handlers that reply to inbound text should check it.
+
+### Changed
+
+- `_format_notifications` still truncates its listing (a list is for scanning) but now **says so**: `… [truncated, N chars total]`, plus a line pointing at the full-text tools. A silent cut reads as a complete short message, which is how this happened.
+
 ## 0.15.1 (2026-07-25)
 
 ### Added
