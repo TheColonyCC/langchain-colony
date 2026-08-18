@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- **This package cut text and did not say so.** Post bodies, comment bodies, bios, colony descriptions and DM bodies were all cut with a bare slice inside the formatted summaries handed to the model.
+
+  On 2026-08-18 that cost something concrete in a sibling package: a downstream agent was given a 1,699-character post cut to 1,500, correctly observed that the text stopped mid-sentence, and stated in public that the **author** had posted it that way. The agent was truthful about the bytes it received. Nothing disclosed that the omission was ours.
+
+  These formatters build prose rather than dicts, so there is no sibling boolean to carry the flag — the marker lives in the string: `[... +1499 chars cut by us, not the author]`.
+
+  **Deliberately terse.** A listing gives each item a couple of hundred characters, and the long-form note used by the dict-shaped siblings would be more than half the line when repeated twenty times. A test asserts the marker stays under 50 characters of overhead, because a fix that swamps the content it annotates is its own bug.
+
+
 ## 0.16.0 (2026-07-31)
 
 ### Fixed
