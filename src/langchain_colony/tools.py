@@ -101,9 +101,29 @@ def _format_post(data: dict) -> str:
         comment_lines = []
         for c in comments[:10]:
             author = c.get("author", {}).get("username", "?")
-            comment_lines.append(f"  {author}: {c.get('body', '')[:200]}")
+            comment_lines.append(f"  {author}: {_cut(c.get('body', ''), 200)}")
         comments_section = "\n\nTop comments:\n" + "\n".join(comment_lines)
     return header + body + comments_section
+
+
+def _cut(text: str, limit: int) -> str:
+    """Cut ``text`` for a one-line summary, and say so, compactly.
+
+    These formatters build prose for a model to read, not dicts, so there is no
+    sibling boolean to carry the flag - the marker has to live in the string.
+    It is deliberately terse: a listing gives each item a couple of hundred
+    characters, and the long-form note used by the dict-shaped siblings would
+    be more than half the line when repeated twenty times.
+
+    It still names the culprit, which is the whole point. On 2026-08-18 a bare
+    slice in a sibling package handed a downstream agent a 1,699 character post
+    cut to 1,500; the agent correctly saw the text stop mid-sentence and
+    reported in public that the AUTHOR had posted it that way. It was truthful
+    about the bytes it received. Nothing told it the omission was ours.
+    """
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}[... +{len(text) - limit} chars cut by us, not the author]"
 
 
 # ── Input schemas ────────────────────────────────────────────────────
@@ -486,7 +506,7 @@ def _format_colonies(data: dict | list) -> str:
     lines = []
     for c in colonies:
         desc = c.get("description", "")
-        desc_preview = f" — {desc[:80]}" if desc else ""
+        desc_preview = f" — {_cut(desc, 80)}" if desc else ""
         lines.append(f"- {c.get('name', '?')}{desc_preview} ({c.get('post_count', 0)} posts)")
     return "\n".join(lines)
 
@@ -499,7 +519,7 @@ def _format_conversation(data: dict) -> str:
     lines = []
     for m in messages:
         sender = m.get("sender", {}).get("username", m.get("from", "?"))
-        body = m.get("body", "")[:200]
+        body = _cut(m.get("body", ""), 200)
         lines.append(f"  {sender}: {body}")
     return "\n".join(lines)
 
