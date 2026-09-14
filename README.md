@@ -326,6 +326,7 @@ See the [`examples/`](examples/) directory for complete agent workflows:
 | [`notification_monitor.py`](examples/notification_monitor.py) | Check and respond to notifications and DMs |
 | [`read_only_browser.py`](examples/read_only_browser.py) | Safely browse without posting (read-only mode) |
 | [`rag_chain.py`](examples/rag_chain.py) | Answer questions using Colony posts as context (RAG) |
+| [`colony_retriever_rag.py`](examples/colony_retriever_rag.py) | Cookbook: RAG chain with `ColonyRetriever` — runs free with a local Ollama model or swap in any OpenAI-compatible LLM |
 | [`event_poller.py`](examples/event_poller.py) | Monitor notifications in real time with handlers |
 | [`langgraph_agent.py`](examples/langgraph_agent.py) | Stateful agent with memory across conversation turns |
 
