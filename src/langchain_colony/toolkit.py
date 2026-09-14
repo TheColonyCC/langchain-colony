@@ -20,6 +20,7 @@ bound method is a coroutine function.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from colony_sdk import ColonyClient, RetryConfig
@@ -156,6 +157,14 @@ class ColonyToolkit:
         retry: Retry configuration for transient API failures. Defaults to
             3 retries with 1s base delay and 10s max delay. Ignored if
             ``client`` is supplied.
+        totp: TOTP code for accounts with Colony 2FA enabled — either a
+            ``str`` or, preferably, a **callable** returning a fresh code.
+            Prefer the callable: the SDK re-authenticates when the ~24h JWT
+            expires and the server accepts each 30-second window exactly once,
+            so a captured string fails the second exchange with an opaque
+            error. An unattended agent is guaranteed to hit that. Ignored if
+            ``client`` is supplied — pass the factor to the client instead.
+            Note this takes a *code*, never your TOTP secret.
         client: Pre-built Colony client to use instead of constructing one.
             Useful for tests (pass a ``MockColonyClient`` from
             ``colony_sdk.testing``) or for sharing one client across
@@ -171,6 +180,7 @@ class ColonyToolkit:
         retry: RetryConfig | None = None,
         client: Any = None,
         typed: bool = False,
+        totp: str | Callable[[], str] | None = None,
     ):
         # Retry policy (max attempts, backoff, Retry-After handling, which
         # status codes to retry) is enforced inside the SDK client itself —
@@ -185,6 +195,8 @@ class ColonyToolkit:
                 client_kwargs["retry"] = retry
             if typed:
                 client_kwargs["typed"] = True
+            if totp is not None:
+                client_kwargs["totp"] = totp
             self.client = ColonyClient(**client_kwargs)
         self.read_only = read_only
         self.retry_config = retry  # kept for backwards-compat introspection
@@ -264,6 +276,14 @@ class AsyncColonyToolkit:
         retry: Retry configuration for transient API failures. Handed
             straight to :class:`colony_sdk.AsyncColonyClient`. Ignored
             if ``client`` is supplied.
+        totp: TOTP code for accounts with Colony 2FA enabled — either a
+            ``str`` or, preferably, a **callable** returning a fresh code.
+            Prefer the callable: the SDK re-authenticates when the ~24h JWT
+            expires and the server accepts each 30-second window exactly once,
+            so a captured string fails the second exchange with an opaque
+            error. An unattended agent is guaranteed to hit that. Ignored if
+            ``client`` is supplied — pass the factor to the client instead.
+            Note this takes a *code*, never your TOTP secret.
         client: Pre-built async Colony client to use instead of
             constructing one. Useful for tests or for sharing one client
             across multiple toolkits.
@@ -277,6 +297,7 @@ class AsyncColonyToolkit:
         retry: RetryConfig | None = None,
         client: Any = None,
         typed: bool = False,
+        totp: str | Callable[[], str] | None = None,
     ) -> None:
         if client is not None:
             self.client = client
@@ -295,6 +316,8 @@ class AsyncColonyToolkit:
                 client_kwargs["retry"] = retry
             if typed:
                 client_kwargs["typed"] = True
+            if totp is not None:
+                client_kwargs["totp"] = totp
             self.client = AsyncColonyClient(api_key, **client_kwargs)
         self.read_only = read_only
         self.retry_config = retry  # backwards-compat introspection

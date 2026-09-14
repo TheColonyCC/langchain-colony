@@ -202,16 +202,48 @@ class ColonyCallbackHandler(BaseCallbackHandler):
 # ── Finish-reason observability ─────────────────────────────────────
 
 
-def _extract_finish_reasons(response: Any) -> list[str]:
-    """Pull every ``finish_reason`` from a LangChain ``LLMResult``.
+class TruncatedGenerationError(RuntimeError):
+    """Raised when a generation finished on ``length`` with empty content.
 
-    Handles both the chat-model shape (``ChatGeneration.message``
-    carries ``response_metadata['finish_reason']``) and the completion
-    shape (``Generation.generation_info['finish_reason']``). Returns a
-    flat list of values across all generations; an empty list when the
-    metadata isn't surfaced by the provider integration.
+    This is the silent-truncation failure: the model exhausted
+    ``num_predict`` / ``max_tokens`` — often entirely on hidden reasoning
+    tokens — before emitting any content, so the resulting empty message
+    is not a valid model decision and must not silently advance agent
+    state. Opt in via ``FinishReasonCallback(raise_on_empty_truncation=True)``.
     """
-    out: list[str] = []
+
+
+def _gen_content(gen: Any) -> str:
+    """Best-effort text content of a single generation (``""`` when empty).
+
+    Reads ``ChatGeneration.message.content`` (a string, or a content-block
+    list for multimodal messages) or the completion ``Generation.text``.
+    """
+    message = getattr(gen, "message", None)
+    content = getattr(message, "content", None) if message is not None else getattr(gen, "text", None)
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+    return str(content)
+
+
+def _iter_reason_content(response: Any) -> list[tuple[str | None, str]]:
+    """Pair each generation's ``finish_reason`` (or ``None``) with its content.
+
+    Handles both the chat-model shape (``ChatGeneration.message`` carries
+    ``response_metadata['finish_reason']``) and the completion shape
+    (``Generation.generation_info['finish_reason']``).
+    """
+    out: list[tuple[str | None, str]] = []
     generations = getattr(response, "generations", None) or []
     for batch in generations:
         # ``generations`` is list[list[Generation]]; inner items may
@@ -231,9 +263,17 @@ def _extract_finish_reasons(response: Any) -> list[str]:
             if value is None:
                 info = getattr(gen, "generation_info", None) or {}
                 value = info.get("finish_reason") or info.get("stop_reason")
-            if value:
-                out.append(str(value))
+            out.append((str(value) if value else None, _gen_content(gen)))
     return out
+
+
+def _extract_finish_reasons(response: Any) -> list[str]:
+    """Pull every ``finish_reason`` from a LangChain ``LLMResult``.
+
+    Returns a flat list of values across all generations; an empty list
+    when the metadata isn't surfaced by the provider integration.
+    """
+    return [reason for reason, _ in _iter_reason_content(response) if reason]
 
 
 class FinishReasonCallback(BaseCallbackHandler):
@@ -254,20 +294,46 @@ class FinishReasonCallback(BaseCallbackHandler):
     ``length`` value lands. Operators can also read :attr:`length_count`
     for a running total.
 
+    By default this is observability only. For the sharper case — a
+    ``length`` finish with *empty* content, i.e. the model spent its whole
+    budget on hidden reasoning tokens and returned nothing — pass
+    ``raise_on_empty_truncation=True`` and the callback raises
+    :class:`TruncatedGenerationError` so the empty message can't silently
+    advance agent state. The handler sets ``raise_error`` in that mode, so
+    the exception propagates out of the agent run rather than being
+    swallowed by LangChain's callback manager.
+
+    The raise is deliberately the *only* built-in policy; everything else
+    (warn only, retry once with a higher ``num_predict``, route to a
+    non-reasoning model, count repeated truncations and stop) is a few
+    lines on top of :attr:`last_finish_reason` / :attr:`length_count` so
+    operators keep control.
+
     Usage::
 
-        from langchain_colony import FinishReasonCallback
+        from langchain_colony import FinishReasonCallback, TruncatedGenerationError
 
+        # Observability (default):
         watcher = FinishReasonCallback()
         agent.invoke({"messages": [...]}, config={"callbacks": [watcher]})
-
         if watcher.length_count:
             print(f"hit num_predict {watcher.length_count} time(s) — bump max_tokens")
+
+        # Fail-fast on empty truncation:
+        guard = FinishReasonCallback(raise_on_empty_truncation=True)
+        try:
+            agent.invoke({"messages": [...]}, config={"callbacks": [guard]})
+        except TruncatedGenerationError:
+            ...  # retry with a higher num_predict, or route to another model
 
     Args:
         log_level: Logging level for the warning emitted on ``length``.
             Set to ``None`` to disable logging and only collect counters.
             Defaults to ``logging.WARNING``.
+        raise_on_empty_truncation: When ``True``, raise
+            :class:`TruncatedGenerationError` on a ``length`` finish whose
+            content is empty. Defaults to ``False`` (observability only),
+            so existing graphs are unaffected.
     """
 
     #: The most recently observed finish_reason, or ``None`` if no LLM
@@ -280,19 +346,29 @@ class FinishReasonCallback(BaseCallbackHandler):
     #: Count of all completions observed (with surfaced finish_reason).
     total_count: int
 
-    def __init__(self, log_level: int | None = logging.WARNING) -> None:
+    def __init__(
+        self,
+        log_level: int | None = logging.WARNING,
+        *,
+        raise_on_empty_truncation: bool = False,
+    ) -> None:
         self.log_level = log_level
+        self.raise_on_empty_truncation = raise_on_empty_truncation
+        # Make LangChain propagate our exception instead of swallowing it.
+        self.raise_error = raise_on_empty_truncation
         self.last_finish_reason = None
         self.length_count = 0
         self.total_count = 0
 
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:
-        reasons = _extract_finish_reasons(response)
+        pairs = _iter_reason_content(response)
+        reasons = [reason for reason, _ in pairs if reason]
         if not reasons:
             return
         self.total_count += len(reasons)
         self.last_finish_reason = reasons[-1]
-        for reason in reasons:
+        empty_truncation = False
+        for reason, content in pairs:
             if reason == "length":
                 self.length_count += 1
                 if self.log_level is not None:
@@ -301,6 +377,15 @@ class FinishReasonCallback(BaseCallbackHandler):
                         "LLM finish_reason=length — likely truncated "
                         "mid-thought, consider raising num_predict / max_tokens",
                     )
+                if self.raise_on_empty_truncation and not content.strip():
+                    empty_truncation = True
+        if empty_truncation:
+            raise TruncatedGenerationError(
+                "Model exhausted num_predict/max_tokens before emitting content "
+                "(finish_reason=length with empty content); not advancing agent "
+                "state. Raise num_predict/max_tokens, retry, or route to a "
+                "non-reasoning model."
+            )
 
     def reset(self) -> None:
         """Reset counters and the last-seen reason."""

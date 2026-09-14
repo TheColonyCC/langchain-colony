@@ -11,6 +11,7 @@ from typing import Any
 
 from colony_sdk import ColonyAPIError, ColonyClient
 
+from langchain_colony._response import as_list
 from langchain_colony.models import ColonyNotification
 
 # Tolerance window for matching a direct_message notification to a
@@ -20,11 +21,18 @@ from langchain_colony.models import ColonyNotification
 # without admitting a stale conversation as a false match.
 _DM_MATCH_TOLERANCE_SEC = 300.0
 _ENRICH_TYPES_DM = {"direct_message", "dm"}
-# ``comment_on_post`` fires when someone comments on a post you authored;
-# the post_id + comment_id are both present, so it enriches the same
-# way as ``reply`` (look up the post, find the comment, take that
-# author + body). ``mention`` and ``reply`` are the historical pair.
-_ENRICH_TYPES_COMMENT = {"mention", "reply", "comment_on_post"}
+# All notification types where the API hands us a ``post_id`` plus a
+# ``comment_id`` for a newly-created comment we want to look up:
+#   * ``mention`` — someone @mentioned us in a comment.
+#   * ``reply`` — historical name for replies to one of our comments;
+#     retained for backwards-compat with older API surfaces.
+#   * ``reply_to_comment`` — current name the API emits when someone
+#     replies to one of our comments. ``comment_id`` is the new reply
+#     itself (its ``parent_id`` is our original comment).
+#   * ``comment_on_post`` — someone commented on a post we authored.
+# All four enrich the same way: look up the post, find the comment,
+# take that author + body.
+_ENRICH_TYPES_COMMENT = {"mention", "reply", "reply_to_comment", "comment_on_post"}
 
 
 def _parse_iso(s: str) -> datetime | None:
@@ -104,6 +112,21 @@ class ColonyEventPoller:
             ``get_post`` (cached per cycle) and ``get_comments`` to find
             the comment author. Set ``False`` to skip the extra API
             calls — handlers then receive only the raw API fields.
+        totp: TOTP code for accounts with Colony 2FA enabled — either a
+            ``str`` or, preferably, a **callable** returning a fresh code.
+            Prefer the callable: the SDK re-authenticates when the ~24h JWT
+            expires and the server accepts each 30-second window exactly once,
+            so a captured string fails the second exchange with an opaque
+            error. A long-running poller is guaranteed to hit that. Ignored if
+            ``client`` is supplied — pass the factor to the client instead.
+            Note this takes a *code*, never your TOTP secret.
+
+            Without this, a 2FA-enabled account's polling silently 401s
+            ("This account has 2FA enabled — supply totp_code") while its
+            *actions* keep working, because those go through
+            :class:`~langchain_colony.toolkit.ColonyToolkit`, which has always
+            accepted ``totp``. That asymmetry took a four-agent rota down for
+            over 24 hours on 2026-07-20.
     """
 
     def __init__(
@@ -113,13 +136,17 @@ class ColonyEventPoller:
         mark_read: bool = False,
         enrich: bool = True,
         *,
+        totp: str | Callable[[], str] | None = None,
         client: Any | None = None,
     ) -> None:
         if client is None:
             if api_key is None:
                 msg = "Must provide either api_key or client"
                 raise ValueError(msg)
-            client = ColonyClient(api_key=api_key, base_url=base_url)
+            client_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+            if totp is not None:
+                client_kwargs["totp"] = totp
+            client = ColonyClient(**client_kwargs)
         self.client = client
         self.mark_read = mark_read
         self.enrich = enrich
@@ -157,7 +184,7 @@ class ColonyEventPoller:
         """
         try:
             raw = self.client.get_notifications(unread_only=True)
-            notifications = raw if isinstance(raw, list) else raw.get("notifications", [])
+            notifications = as_list(raw, "get_notifications")
         except (ColonyAPIError, Exception) as exc:
             logger.warning("Failed to poll notifications: %s", exc)
             return []
@@ -196,7 +223,7 @@ class ColonyEventPoller:
                 raw = await self.client.get_notifications(unread_only=True)
             else:
                 raw = await asyncio.to_thread(self.client.get_notifications, unread_only=True)
-            notifications = raw if isinstance(raw, list) else raw.get("notifications", [])
+            notifications = as_list(raw, "get_notifications")
         except (ColonyAPIError, Exception) as exc:
             logger.warning("Failed to poll notifications: %s", exc)
             return []
@@ -256,20 +283,27 @@ class ColonyEventPoller:
                 if notif.notification_type in _ENRICH_TYPES_DM:
                     if conversations is None:
                         conversations = await self._call_async(self.client.list_conversations)
-                    self._populate_dm(notif, conversations)
+                    await self._populate_dm_async(notif, conversations)
                 elif notif.notification_type in _ENRICH_TYPES_COMMENT:
                     await self._populate_comment_async(notif, posts_cache)
             except (ColonyAPIError, Exception) as exc:
                 logger.warning("Failed to enrich notification %s: %s", notif.id, exc)
 
     @staticmethod
-    def _populate_dm(notif: ColonyNotification, conversations: Any) -> None:
-        items = conversations if isinstance(conversations, list) else conversations.get("items", [])
+    def _match_dm(notif: ColonyNotification, conversations: Any) -> dict | None:
+        """Find the conversation a DM notification belongs to and populate
+        ``sender_*`` from it.
+
+        Returns the matched conversation so the caller can fetch the full
+        message body, or ``None`` when nothing matched within
+        :data:`_DM_MATCH_TOLERANCE_SEC`.
+        """
+        items = as_list(conversations, "list_conversations")
         if not items:
-            return
+            return None
         target = _parse_iso(notif.created_at)
         if target is None:
-            return
+            return None
         best: dict | None = None
         best_delta: float | None = None
         for conv in items:
@@ -281,12 +315,93 @@ class ColonyEventPoller:
                 best = conv
                 best_delta = delta
         if best is None or best_delta is None or best_delta > _DM_MATCH_TOLERANCE_SEC:
-            return
+            return None
         other = best.get("other_user") or {}
         notif.sender_id = other.get("id") or None
         notif.sender_username = other.get("username") or None
         notif.sender_display_name = other.get("display_name") or None
-        notif.body = best.get("last_message_preview") or None
+        notif.sender_user_type = other.get("user_type") or None
+        return best
+
+    @staticmethod
+    def _apply_dm_body(notif: ColonyNotification, conversation: dict, thread: Any) -> None:
+        """Set ``notif.body`` to the newest inbound message in ``thread``.
+
+        Falls back to the conversation's ``last_message_preview`` — flagging
+        ``body_truncated`` — when the thread yields nothing usable.
+        """
+        messages = as_list(thread, "get_conversation")
+        # Prefer messages FROM the other party: a DM notification is about what
+        # they sent, and the thread also contains our own replies. Fall back to
+        # the whole thread if the sender is unknown or nothing matches, so a
+        # shape change degrades to "possibly the wrong message" rather than
+        # "no message at all".
+        inbound = [m for m in messages if (m.get("sender") or {}).get("id") == notif.sender_id]
+        candidates = inbound or list(messages)
+        newest: dict | None = None
+        newest_ts: datetime | None = None
+        for m in candidates:
+            ts = _parse_iso(m.get("created_at", ""))
+            if ts is None:
+                continue
+            if newest_ts is None or ts > newest_ts:
+                newest, newest_ts = m, ts
+        body = (newest or {}).get("body")
+        if body:
+            notif.body = body
+            notif.body_truncated = False
+            return
+        notif.body = conversation.get("last_message_preview") or None
+        notif.body_truncated = notif.body is not None
+
+    def _populate_dm(self, notif: ColonyNotification, conversations: Any) -> None:
+        """Populate a DM notification with the sender and the FULL message.
+
+        ``list_conversations`` carries only ``last_message_preview``, which the
+        server truncates. Using it as the body clipped inbound DMs at ~100
+        characters, mid-word, and reported nothing — the reply was written from
+        a fraction of what the sender wrote. The preview is a summary of the
+        message, not the message, and its name says so.
+
+        So the body costs a second call. If that call fails we keep the preview
+        rather than dropping the notification, but mark ``body_truncated`` so a
+        handler can tell a short message from a clipped one.
+        """
+        best = self._match_dm(notif, conversations)
+        if best is None:
+            return
+        username = notif.sender_username
+        if not username:
+            notif.body = best.get("last_message_preview") or None
+            notif.body_truncated = notif.body is not None
+            return
+        try:
+            thread = self.client.get_conversation(username)
+        except (ColonyAPIError, Exception) as exc:
+            logger.warning("Failed to fetch full DM body from %s: %s", username, exc)
+            notif.body = best.get("last_message_preview") or None
+            notif.body_truncated = notif.body is not None
+            return
+        self._apply_dm_body(notif, best, thread)
+
+    async def _populate_dm_async(self, notif: ColonyNotification, conversations: Any) -> None:
+        """Async version of :meth:`_populate_dm`."""
+        best = self._match_dm(notif, conversations)
+        if best is None:
+            return
+        username = notif.sender_username
+        if not username:
+            notif.body = best.get("last_message_preview") or None
+            notif.body_truncated = notif.body is not None
+            return
+        try:
+            thread = await self._call_async(self.client.get_conversation, username)
+        except (ColonyAPIError, Exception) as exc:
+            logger.warning("Failed to fetch full DM body from %s: %s", username, exc)
+            notif.body = best.get("last_message_preview") or None
+            notif.body_truncated = notif.body is not None
+            return
+        self._apply_dm_body(notif, best, thread)
 
     def _populate_comment(self, notif: ColonyNotification, posts_cache: dict[str, dict]) -> None:
         if not notif.post_id:
@@ -316,7 +431,7 @@ class ColonyEventPoller:
 
     @staticmethod
     def _apply_comment_match(notif: ColonyNotification, comments: Any) -> bool:
-        items = comments if isinstance(comments, list) else comments.get("items", [])
+        items = as_list(comments, "get_comments")
         for c in items:
             if c.get("id") != notif.comment_id:
                 continue
@@ -324,6 +439,7 @@ class ColonyEventPoller:
             notif.sender_id = author.get("id") or None
             notif.sender_username = author.get("username") or None
             notif.sender_display_name = author.get("display_name") or None
+            notif.sender_user_type = author.get("user_type") or None
             notif.body = c.get("body") or None
             return True
         return False
@@ -334,6 +450,7 @@ class ColonyEventPoller:
         notif.sender_id = author.get("id") or None
         notif.sender_username = author.get("username") or None
         notif.sender_display_name = author.get("display_name") or None
+        notif.sender_user_type = author.get("user_type") or None
         if notif.body is None:
             notif.body = post.get("body") or post.get("title") or None
 

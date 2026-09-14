@@ -265,6 +265,7 @@ def _conversation(
     last_message_at: str = _CONV_TS_MATCH,
     preview: str = "Hi there",
     unread: int = 1,
+    user_type: str = "agent",
 ) -> dict:
     return {
         "id": "conv-1",
@@ -272,12 +273,54 @@ def _conversation(
             "id": user_id,
             "username": username,
             "display_name": display_name,
+            "user_type": user_type,
         },
         "last_message_at": last_message_at,
         "unread_count": unread,
         "last_message_preview": preview,
         "is_archived": False,
     }
+
+
+#: A message long enough that the server's ~100-char preview cuts it. The
+#: original bug read `last_message_preview` as the body, so a DM this long
+#: arrived clipped mid-word with nothing reporting the cut.
+_LONG_BODY = (
+    "Field note you'll want as the operator of the fleet: two of your agents clip inbound "
+    "DMs at exactly one hundred characters, identical signature, and we misread it as our "
+    "own send bug for three fires before measuring it properly."
+)
+
+
+def _thread(
+    body: str = _LONG_BODY,
+    user_id: str = "u-cone",
+    username: str = "colonist-one",
+    created_at: str = _CONV_TS_MATCH,
+    include_own_reply: bool = True,
+) -> dict:
+    """A `get_conversation` response: the full messages, not a preview."""
+    messages = [
+        {
+            "id": "m-1",
+            "sender": {"id": user_id, "username": username},
+            "body": body,
+            "created_at": created_at,
+        }
+    ]
+    if include_own_reply:
+        # Our own older reply also lives in the thread; it must not be picked
+        # as the notification's body.
+        messages.insert(
+            0,
+            {
+                "id": "m-0",
+                "sender": {"id": "u-me", "username": "me"},
+                "body": "my own earlier reply",
+                "created_at": "2026-04-26T16:00:00.000000Z",
+            },
+        )
+    return {"other_user": {"id": user_id, "username": username}, "messages": messages}
 
 
 def _mention_notification(
@@ -297,7 +340,11 @@ def _mention_notification(
     }
 
 
-def _post(post_id: str = "post-1", author_username: str = "post-author") -> dict:
+def _post(
+    post_id: str = "post-1",
+    author_username: str = "post-author",
+    author_user_type: str = "agent",
+) -> dict:
     return {
         "id": post_id,
         "title": "A Post",
@@ -306,11 +353,16 @@ def _post(post_id: str = "post-1", author_username: str = "post-author") -> dict
             "id": "u-post-author",
             "username": author_username,
             "display_name": "Post Author",
+            "user_type": author_user_type,
         },
     }
 
 
-def _comment_list(comment_id: str = "c-1", author_username: str = "comment-author") -> dict:
+def _comment_list(
+    comment_id: str = "c-1",
+    author_username: str = "comment-author",
+    author_user_type: str = "agent",
+) -> dict:
     return {
         "items": [
             {
@@ -320,6 +372,7 @@ def _comment_list(comment_id: str = "c-1", author_username: str = "comment-autho
                     "id": "u-comment-author",
                     "username": author_username,
                     "display_name": "Comment Author",
+                    "user_type": author_user_type,
                 },
             }
         ]
@@ -331,6 +384,7 @@ class TestEnrichDirectMessage:
         poller = _make_poller()
         poller.client.get_notifications.return_value = [_dm_notification()]
         poller.client.list_conversations.return_value = {"items": [_conversation()]}
+        poller.client.get_conversation.return_value = _thread(body="Hi there")
         results = poller.poll_once()
         assert len(results) == 1
         n = results[0]
@@ -338,6 +392,97 @@ class TestEnrichDirectMessage:
         assert n.sender_display_name == "ColonistOne"
         assert n.sender_id == "u-cone"
         assert n.body == "Hi there"
+        assert n.body_truncated is False
+
+    def test_dm_body_is_the_full_message_not_the_preview(self):
+        """Regression: `last_message_preview` is server-truncated.
+
+        Reading it as the body clipped every inbound DM at ~100 characters,
+        mid-word, silently — the agent then replied to a fraction of what was
+        sent. The preview and the body must be able to disagree, and the body
+        must win.
+        """
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        preview = _LONG_BODY[:100]
+        poller.client.list_conversations.return_value = {"items": [_conversation(preview=preview)]}
+        poller.client.get_conversation.return_value = _thread(body=_LONG_BODY)
+        n = poller.poll_once()[0]
+        assert n.body == _LONG_BODY
+        assert len(n.body) > len(preview)
+        assert n.body_truncated is False
+        poller.client.get_conversation.assert_called_once_with("colonist-one")
+
+    def test_dm_prefers_the_senders_message_over_our_own_reply(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation()]}
+        poller.client.get_conversation.return_value = _thread(include_own_reply=True)
+        n = poller.poll_once()[0]
+        assert n.body == _LONG_BODY
+
+    def test_dm_falls_back_to_preview_and_flags_it_when_fetch_fails(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation(preview="clipped…")]}
+        poller.client.get_conversation.side_effect = RuntimeError("boom")
+        n = poller.poll_once()[0]
+        assert n.body == "clipped…"
+        # The whole point of the flag: a handler can tell a genuinely short
+        # message from one we only managed to fetch part of.
+        assert n.body_truncated is True
+
+    def test_dm_falls_back_when_thread_has_no_usable_messages(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation(preview="clipped…")]}
+        poller.client.get_conversation.return_value = {"messages": []}
+        n = poller.poll_once()[0]
+        assert n.body == "clipped…"
+        assert n.body_truncated is True
+
+    def test_dm_falls_back_when_the_match_has_no_username(self):
+        """A conversation can match on timestamp yet carry no username.
+
+        There is nothing to call `get_conversation` with, so the preview is all
+        we have — and it must be flagged, not passed off as the message.
+        """
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        conv = _conversation(preview="clipped…")
+        conv["other_user"] = {"id": "u-cone"}  # no username
+        poller.client.list_conversations.return_value = {"items": [conv]}
+        n = poller.poll_once()[0]
+        assert n.body == "clipped…"
+        assert n.body_truncated is True
+        poller.client.get_conversation.assert_not_called()
+
+    def test_dm_skips_thread_messages_with_unparseable_timestamps(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation()]}
+        thread = _thread(body=_LONG_BODY, include_own_reply=False)
+        thread["messages"].insert(
+            0,
+            {
+                "id": "m-bad",
+                "sender": {"id": "u-cone", "username": "colonist-one"},
+                "body": "undateable, must not win",
+                "created_at": "not-a-date",
+            },
+        )
+        poller.client.get_conversation.return_value = thread
+        n = poller.poll_once()[0]
+        assert n.body == _LONG_BODY
+
+    def test_dm_handles_bare_list_thread(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation()]}
+        poller.client.get_conversation.return_value = _thread()["messages"]
+        n = poller.poll_once()[0]
+        assert n.body == _LONG_BODY
+        assert n.body_truncated is False
 
     def test_dm_no_match_when_timestamps_far_apart(self):
         poller = _make_poller()
@@ -454,6 +599,25 @@ class TestEnrichComment:
         n = poller.poll_once()[0]
         assert n.sender_username == "comment-author"
 
+    def test_reply_to_comment_type_is_enriched(self):
+        # Current API name for replies to one of our comments;
+        # ``reply`` is the historical alias. ``comment_id`` here is
+        # the new reply itself (its ``parent_id`` is our original
+        # comment), so the comment-match path picks up the replier's
+        # author + body — same shape as ``mention`` / ``reply`` /
+        # ``comment_on_post``. (Caught 2026-05-14 audit of Langford's
+        # agent.log: 108/108 ``reply_to_comment`` events arrived
+        # unenriched because the set still listed only the legacy
+        # ``reply`` name; the agent mis-threaded ~20% of them with no
+        # sender context, producing 20+ post-dispatch deletions over
+        # 10 days.)
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification(type_="reply_to_comment")]
+        poller.client.get_post.return_value = _post()
+        poller.client.get_comments.return_value = _comment_list()
+        n = poller.poll_once()[0]
+        assert n.sender_username == "comment-author"
+
     def test_get_post_cached_per_cycle(self):
         poller = _make_poller()
         poller.client.get_notifications.return_value = [
@@ -525,12 +689,81 @@ class TestEnrichAsync:
         poller = _make_poller()
         poller.client.get_notifications.return_value = [_dm_notification()]
         poller.client.list_conversations.return_value = {"items": [_conversation()]}
+        poller.client.get_conversation.return_value = _thread()
         results = asyncio.run(poller.poll_once_async())
         assert results[0].sender_username == "colonist-one"
+
+    def test_async_dm_body_is_the_full_message_not_the_preview(self):
+        """The async path must fetch the body too.
+
+        Asserting only ``sender_username`` here (as this class did) passes
+        whether or not the async path ever calls ``get_conversation`` — the
+        sender comes from the conversation match, which never needed the
+        second call. The body is the field that distinguishes them.
+        """
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation(preview=_LONG_BODY[:100])]}
+        poller.client.get_conversation.return_value = _thread(body=_LONG_BODY)
+        results = asyncio.run(poller.poll_once_async())
+        assert results[0].body == _LONG_BODY
+        assert results[0].body_truncated is False
+        poller.client.get_conversation.assert_called_once_with("colonist-one")
+
+    def test_async_dm_awaits_a_native_async_client(self):
+        """Pin that the async path really is async.
+
+        With a sync MagicMock client, routing the async branch through the
+        *sync* populator passes every other test in this class — the mock
+        returns a dict either way. Against a native ``AsyncColonyClient``,
+        ``get_conversation`` returns a coroutine, and the sync populator hands
+        that straight to ``_apply_dm_body`` instead of awaiting it. Only an
+        async-callable mock can tell the two apart.
+        """
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation()]}
+
+        async def _get_conversation(username: str) -> dict:
+            assert username == "colonist-one"
+            return _thread(body=_LONG_BODY)
+
+        poller.client.get_conversation = _get_conversation
+        results = asyncio.run(poller.poll_once_async())
+        assert results[0].body == _LONG_BODY
+        assert results[0].body_truncated is False
+
+    def test_async_dm_falls_back_when_the_match_has_no_username(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        conv = _conversation(preview="clipped…")
+        conv["other_user"] = {"id": "u-cone"}  # no username
+        poller.client.list_conversations.return_value = {"items": [conv]}
+        results = asyncio.run(poller.poll_once_async())
+        assert results[0].body == "clipped…"
+        assert results[0].body_truncated is True
+        poller.client.get_conversation.assert_not_called()
+
+    def test_async_dm_falls_back_to_preview_and_flags_it(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation(preview="clipped…")]}
+        poller.client.get_conversation.side_effect = RuntimeError("boom")
+        results = asyncio.run(poller.poll_once_async())
+        assert results[0].body == "clipped…"
+        assert results[0].body_truncated is True
 
     def test_async_mention_enrichment(self):
         poller = _make_poller()
         poller.client.get_notifications.return_value = [_mention_notification()]
+        poller.client.get_post.return_value = _post()
+        poller.client.get_comments.return_value = _comment_list()
+        results = asyncio.run(poller.poll_once_async())
+        assert results[0].sender_username == "comment-author"
+
+    def test_async_reply_to_comment_enrichment(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification(type_="reply_to_comment")]
         poller.client.get_post.return_value = _post()
         poller.client.get_comments.return_value = _comment_list()
         results = asyncio.run(poller.poll_once_async())
@@ -617,3 +850,67 @@ class TestParseIso:
         from langchain_colony.events import _parse_iso
 
         assert _parse_iso("not-a-date") is None
+
+
+class TestEnrichSenderUserType:
+    """``sender_user_type`` is populated on every enrichment path.
+
+    Added in 0.12.0 so dispatch handlers can gate features on whether
+    the sender is an agent or a human (e.g. the comment-prompt framing
+    only applies on agent-to-agent traffic).
+    """
+
+    def test_dm_propagates_user_type(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation(user_type="agent")]}
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "agent"
+
+    def test_dm_human_user_type_propagates(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation(user_type="human")]}
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "human"
+
+    def test_comment_match_propagates_user_type(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification()]
+        poller.client.get_post.return_value = _post()
+        poller.client.get_comments.return_value = _comment_list(author_user_type="agent")
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "agent"
+
+    def test_comment_human_author_propagates(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification()]
+        poller.client.get_post.return_value = _post()
+        poller.client.get_comments.return_value = _comment_list(author_user_type="human")
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "human"
+
+    def test_post_author_fallback_propagates_user_type(self):
+        # When comment_id is missing, enrichment falls back to the post
+        # author — user_type must still propagate so the gate works.
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification(comment_id=None)]
+        poller.client.get_post.return_value = _post(author_user_type="agent")
+        n = poller.poll_once()[0]
+        assert n.sender_user_type == "agent"
+
+    def test_missing_user_type_stays_none(self):
+        # Older Colony API responses may omit user_type entirely. The
+        # gate must read this as "unknown" rather than crashing or
+        # defaulting silently to agent.
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_mention_notification()]
+        # Strip user_type from author by passing a custom fixture.
+        post_no_type = _post()
+        post_no_type["author"].pop("user_type", None)
+        poller.client.get_post.return_value = post_no_type
+        comments_no_type = _comment_list()
+        comments_no_type["items"][0]["author"].pop("user_type", None)
+        poller.client.get_comments.return_value = comments_no_type
+        n = poller.poll_once()[0]
+        assert n.sender_user_type is None

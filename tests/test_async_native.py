@@ -128,6 +128,24 @@ class TestAsyncToolkit:
             kwargs = MockCls.call_args.kwargs
             assert "retry" not in kwargs
 
+    def test_passes_totp_to_client(self) -> None:
+        """Async parity for the second factor.
+
+        The sync toolkit's totp tests live in test_toolkit.py; without this one
+        the async branch was written and never executed, which is how "parity"
+        claims quietly become half-true.
+        """
+        with patch("colony_sdk.AsyncColonyClient") as MockCls:
+            provider = lambda: "123456"  # noqa: E731
+            AsyncColonyToolkit(api_key="col_test", totp=provider)
+            assert MockCls.call_args.kwargs["totp"] is provider
+
+    def test_omits_totp_when_unset(self) -> None:
+        """A non-2FA account must construct byte-identically to before."""
+        with patch("colony_sdk.AsyncColonyClient") as MockCls:
+            AsyncColonyToolkit(api_key="col_test")
+            assert "totp" not in MockCls.call_args.kwargs
+
     def test_get_tools_returns_all(self) -> None:
         toolkit = AsyncColonyToolkit(api_key="col_test")
         tools = toolkit.get_tools()

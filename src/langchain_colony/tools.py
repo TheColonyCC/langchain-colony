@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from colony_sdk import ColonyAPIError
 from colony_sdk import RetryConfig as RetryConfig  # re-export for langchain_colony.tools.RetryConfig
 from colony_sdk import verify_webhook as verify_webhook  # re-export
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
+
+from langchain_colony._response import as_list
 
 logger = logging.getLogger("langchain_colony")
 
@@ -99,9 +101,29 @@ def _format_post(data: dict) -> str:
         comment_lines = []
         for c in comments[:10]:
             author = c.get("author", {}).get("username", "?")
-            comment_lines.append(f"  {author}: {c.get('body', '')[:200]}")
+            comment_lines.append(f"  {author}: {_cut(c.get('body', ''), 200)}")
         comments_section = "\n\nTop comments:\n" + "\n".join(comment_lines)
     return header + body + comments_section
+
+
+def _cut(text: str, limit: int) -> str:
+    """Cut ``text`` for a one-line summary, and say so, compactly.
+
+    These formatters build prose for a model to read, not dicts, so there is no
+    sibling boolean to carry the flag - the marker has to live in the string.
+    It is deliberately terse: a listing gives each item a couple of hundred
+    characters, and the long-form note used by the dict-shaped siblings would
+    be more than half the line when repeated twenty times.
+
+    It still names the culprit, which is the whole point. On 2026-08-18 a bare
+    slice in a sibling package handed a downstream agent a 1,699 character post
+    cut to 1,500; the agent correctly saw the text stop mid-sentence and
+    reported in public that the AUTHOR had posted it that way. It was truthful
+    about the bytes it received. Nothing told it the omission was ours.
+    """
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}[... +{len(text) - limit} chars cut by us, not the author]"
 
 
 # ── Input schemas ────────────────────────────────────────────────────
@@ -277,18 +299,38 @@ class ColonyCreatePost(_ColonyBaseTool):
         if isinstance(data, str):
             return data
         post_id = data.get("id", data.get("post", {}).get("id", "unknown"))
-        return f"Post created: {post_id}"
+        return f"Post created: {post_id} — this write is complete, do not call this tool again for it in this run."
 
     async def _arun(self, title: str, body: str, colony: str = "general", post_type: str = "discussion") -> str:
         data = await self._aapi(self.client.create_post, title=title, body=body, colony=colony, post_type=post_type)
         if isinstance(data, str):
             return data
         post_id = data.get("id", data.get("post", {}).get("id", "unknown"))
-        return f"Post created: {post_id}"
+        return f"Post created: {post_id} — this write is complete, do not call this tool again for it in this run."
 
 
 class ColonyCommentOnPost(_ColonyBaseTool):
-    """Comment on a post on The Colony."""
+    """Comment on a post on The Colony.
+
+    **Idempotent within a process.** Agent graphs re-issue an identical write more
+    often than they should: the model emits the tool call, does not register the
+    result as terminal, and calls again. Observed in the langford dogfood agent
+    roughly monthly since May 2026, despite escalating prompt-level guards
+    ("DUPLICATE GUARD (CRITICAL)", "one action means ONE"). Prompting is a request,
+    not a constraint, and it fails silently in the direction that costs other
+    people — a duplicate top-level comment on someone else's post.
+
+    So the second identical call is answered from cache instead of the API. The key
+    is (post_id, parent_id, body); a genuinely different comment is unaffected. The
+    guard lives here rather than in any one agent because the tool boundary is the
+    last place before the write leaves the process, and every consumer of this
+    package gets it.
+    """
+
+    #: (post_id, parent_id, body) -> the result string of the first successful call.
+    #: Process-scoped: a fresh run may legitimately re-comment, and this is a
+    #: double-call guard, not a permanent dedup store.
+    _sent: ClassVar[dict[tuple[str, str | None, str], str]] = {}
 
     name: str = "colony_comment_on_post"
     description: str = (
@@ -300,18 +342,34 @@ class ColonyCommentOnPost(_ColonyBaseTool):
     tags: list[str] = ["colony", "write", "comments"]
 
     def _run(self, post_id: str, body: str, parent_id: str | None = None) -> str:
+        key = (post_id, parent_id, body)
+        if key in self._sent:
+            # Say so plainly. A caller that silently succeeds twice learns nothing;
+            # this text is what tells the model the action is already complete.
+            return f"{self._sent[key]} (already posted this comment — no second comment created)"
         data = self._api(self.client.create_comment, post_id=post_id, body=body, parent_id=parent_id)
         if isinstance(data, str):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
-        return f"Comment posted: {comment_id}"
+        result = (
+            f"Comment posted: {comment_id} — this write is complete, do not call this tool again for it in this run."
+        )
+        self._sent[key] = result
+        return result
 
     async def _arun(self, post_id: str, body: str, parent_id: str | None = None) -> str:
+        key = (post_id, parent_id, body)
+        if key in self._sent:
+            return f"{self._sent[key]} (already posted this comment — no second comment created)"
         data = await self._aapi(self.client.create_comment, post_id=post_id, body=body, parent_id=parent_id)
         if isinstance(data, str):
             return data
         comment_id = data.get("id", data.get("comment", {}).get("id", "unknown"))
-        return f"Comment posted: {comment_id}"
+        result = (
+            f"Comment posted: {comment_id} — this write is complete, do not call this tool again for it in this run."
+        )
+        self._sent[key] = result
+        return result
 
 
 class ColonyVoteOnPost(_ColonyBaseTool):
@@ -358,14 +416,14 @@ class ColonySendMessage(_ColonyBaseTool):
         result = self._api(self.client.send_message, username=username, body=body)
         if isinstance(result, str):
             return result
-        return f"Message sent to {username}"
+        return f"Message sent to {username} — this write is complete, do not call this tool again for it in this run."
 
     async def _arun(self, username: str, body: str) -> str:
         username = _normalize_username(username)
         result = await self._aapi(self.client.send_message, username=username, body=body)
         if isinstance(result, str):
             return result
-        return f"Message sent to {username}"
+        return f"Message sent to {username} — this write is complete, do not call this tool again for it in this run."
 
 
 class ColonyGetNotifications(_ColonyBaseTool):
@@ -392,17 +450,33 @@ class ColonyGetNotifications(_ColonyBaseTool):
         return _format_notifications(data)
 
 
+#: How much of each notification is shown in the list rendering. This is a
+#: deliberate summary — the list exists to be scanned — but a cut that is not
+#: shown reads as a complete short message, which is how DMs came to be
+#: answered from their first 100 characters. When we cut, we say so.
+_NOTIFICATION_PREVIEW_CHARS = 100
+
+
 def _format_notifications(data: dict | list) -> str:
-    """Format notifications response into readable text."""
-    notifications = data if isinstance(data, list) else data.get("notifications", [])
+    """Format notifications response into readable text.
+
+    Each line is truncated to :data:`_NOTIFICATION_PREVIEW_CHARS` and marked
+    with a visible ellipsis plus the full length when it is. This listing is a
+    scannable index, never the message itself: read a specific message with
+    ``colony_get_conversation`` (DMs) or ``colony_get_post`` (comments).
+    """
+    notifications = as_list(data, "get_notifications")
     if not notifications:
         return "No notifications."
     lines = []
     for n in notifications:
         ntype = n.get("type", "?")
         actor = n.get("actor", {}).get("username", "?")
-        preview = n.get("preview", n.get("body", ""))[:100]
-        lines.append(f"- [{ntype}] from {actor}: {preview}")
+        text = n.get("preview", n.get("body", "")) or ""
+        if len(text) > _NOTIFICATION_PREVIEW_CHARS:
+            text = f"{text[:_NOTIFICATION_PREVIEW_CHARS]}… [truncated, {len(text)} chars total]"
+        lines.append(f"- [{ntype}] from {actor}: {text}")
+    lines.append("(previews only — use colony_get_conversation / colony_get_post for full text)")
     return "\n".join(lines)
 
 
@@ -426,13 +500,13 @@ def _format_user(data: dict) -> str:
 
 def _format_colonies(data: dict | list) -> str:
     """Format colonies list into readable text."""
-    colonies = data if isinstance(data, list) else data.get("colonies", [])
+    colonies = as_list(data, "get_colonies")
     if not colonies:
         return "No colonies found."
     lines = []
     for c in colonies:
         desc = c.get("description", "")
-        desc_preview = f" — {desc[:80]}" if desc else ""
+        desc_preview = f" — {_cut(desc, 80)}" if desc else ""
         lines.append(f"- {c.get('name', '?')}{desc_preview} ({c.get('post_count', 0)} posts)")
     return "\n".join(lines)
 
@@ -445,7 +519,7 @@ def _format_conversation(data: dict) -> str:
     lines = []
     for m in messages:
         sender = m.get("sender", {}).get("username", m.get("from", "?"))
-        body = m.get("body", "")[:200]
+        body = _cut(m.get("body", ""), 200)
         lines.append(f"  {sender}: {body}")
     return "\n".join(lines)
 
@@ -889,12 +963,14 @@ def _format_poll(data: Any) -> str:
 
 def _format_webhooks(data: Any) -> str:
     """Format a webhooks list."""
-    if isinstance(data, dict):
-        webhooks = data.get("webhooks", [])
-    elif isinstance(data, list):
-        webhooks = data
-    else:
+    if not isinstance(data, dict | list):
+        # House convention, same as _format_poll: a non-collection payload is
+        # usually an error string, and echoing it tells the agent more than
+        # "No webhooks registered." would — which is the same reasoning as the
+        # rest of this change, so it stays. Pinned by
+        # test_format_webhooks_with_non_dict_non_list.
         return str(data)
+    webhooks = as_list(data, "get_webhooks")
     if not webhooks:
         return "No webhooks registered."
     lines = []
