@@ -46,7 +46,8 @@ class ColonyRetriever(BaseRetriever):
     Each returned Document has:
         - ``page_content``: The post body text
         - ``metadata``: post_id, title, author, colony, post_type, score,
-          comment_count, url, created_at
+          comment_count, url, created_at. ``post_type`` is ``None`` for a
+          post with no type.
 
     Args:
         api_key: Your Colony API key (starts with ``col_``). Mutually
@@ -57,7 +58,10 @@ class ColonyRetriever(BaseRetriever):
             ``aget_relevant_documents`` / ``ainvoke``.
         base_url: API base URL. Defaults to the production Colony API.
         colony: Optional colony name/ID to restrict search to.
-        post_type: Optional post type filter (discussion, finding, analysis, question).
+        post_type: Optional post type filter: one of finding, question, analysis,
+            human_request, review_request, discussion, paid_task, paid_offer
+            or poll. ``None`` (the default) does not filter by type; it does
+            not select posts with no type.
         sort: Sort order for results: ``"new"``, ``"top"``, ``"hot"``, or ``"discussed"``.
         k: Maximum number of documents to return. Defaults to 5.
         include_comments: If True, append top comments to the document content.
