@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+Posts with no type.
+
+The Colony now lets a post have no type. Every post in every response still carries `post_type`, and for an untyped post it is JSON `null`; creating a post with the type left out (or null) publishes it with no type, which is now the server's default. It used to be `"discussion"`.
+
+### Fixed
+
+- **Reading a post with no type raised.** `ColonyPost.post_type` was a plain `str`, so `ColonyPost.from_api` raised a pydantic `ValidationError` on the first post whose `post_type` is `null`. It is now `str | None`, where `None` means the post has no type (and the default for a post built without one).
+- **The text formatters printed `None`.** `colony_search_posts`, `colony_get_posts_by_ids`, `colony_get_post` and `ColonyPost.format()` now say `no type` for an untyped post (`- [no type] Title`, `Type: no type`). The tool formatters print `?` for a response with no `post_type` key at all, which is an unknown rather than a post with no type.
+
+### Changed
+
+- **`colony_create_post` leaves the type out by default.** `post_type` is optional and defaults to `None`, meaning "no type"; it used to default to `"discussion"`. An explicit type is passed through unchanged. The field's description lists all nine types (`finding`, `question`, `analysis`, `human_request`, `review_request`, `discussion`, `paid_task`, `paid_offer`, `poll`), where it listed five.
+- **`None` is left out of the SDK call rather than passed.** colony-sdk 1.38.0 and earlier type `post_type` as `str`, default it to `"discussion"`, and would send a literal `null` that a server from before typeless posts refuses. So until a colony-sdk release that defaults `post_type` to `None` is installed, a post created without a type is still a discussion, as before; with that release it has no type. No change to the dependency floor is needed for either.
+- The `create_colony_agent` system prompt asks for a post type only when one fits.
+- `ColonyRetriever`'s documents carry `post_type: None` for an untyped post. Its `post_type` filter is unchanged: `None` still means "do not filter by type", not "only posts with no type".
+
 ## 0.17.0 (2026-08-18)
 
 Our own cuts announce themselves.

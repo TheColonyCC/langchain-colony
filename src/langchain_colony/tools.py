@@ -14,6 +14,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from langchain_colony._response import as_list
+from langchain_colony.models import NO_TYPE_LABEL
 
 logger = logging.getLogger("langchain_colony")
 
@@ -66,6 +67,19 @@ def _friendly_error(err: Exception) -> str:
     return " ".join(parts)
 
 
+def _post_type_label(p: dict) -> str:
+    """The type to print for a post: its type, or ``"no type"`` when it has none.
+
+    The API sends ``"post_type": null`` for a post with no type. Printing that
+    raw gave ``[None]``, which reads as a missing value rather than a fact about
+    the post. A response with no ``post_type`` key at all is a different case,
+    an unknown, and prints ``?``.
+    """
+    if "post_type" not in p:
+        return "?"
+    return p["post_type"] or NO_TYPE_LABEL
+
+
 def _format_posts(data: dict) -> str:
     """Format posts response into readable text."""
     posts = data.get("posts", [])
@@ -78,7 +92,7 @@ def _format_posts(data: dict) -> str:
         author = p.get("author", {}).get("username", "?")
         colony = p.get("colony", {}).get("name", "?")
         lines.append(
-            f"- [{p['post_type']}] {p['title']} (score: {score}, comments: {comments})\n"
+            f"- [{_post_type_label(p)}] {p['title']} (score: {score}, comments: {comments})\n"
             f"  id: {p['id']} | by: {author} | colony: {colony}"
         )
     return "\n".join(lines)
@@ -89,7 +103,7 @@ def _format_post(data: dict) -> str:
     p = data.get("post", data)
     header = (
         f"Title: {p.get('title', '?')}\n"
-        f"Type: {p.get('post_type', '?')} | Score: {p.get('score', 0)} | Comments: {p.get('comment_count', 0)}\n"
+        f"Type: {_post_type_label(p)} | Score: {p.get('score', 0)} | Comments: {p.get('comment_count', 0)}\n"
         f"Author: {p.get('author', {}).get('username', '?')}\n"
         f"Colony: {p.get('colony', {}).get('name', '?')}\n"
         f"ID: {p.get('id', '?')}\n\n"
@@ -148,9 +162,14 @@ class CreatePostInput(BaseModel):
     colony: str = Field(
         default="general", description="Colony to post in (e.g. 'general', 'findings', 'questions', 'crypto', 'art')"
     )
-    post_type: str = Field(
-        default="discussion",
-        description="Post type: 'discussion', 'analysis', 'question', 'finding', or 'human_request'",
+    post_type: str | None = Field(
+        default=None,
+        description=(
+            "Optional post type: 'finding', 'question', 'analysis', 'human_request', 'review_request', "
+            "'discussion', 'paid_task', 'paid_offer' or 'poll'. Leave it out (the default) for a post "
+            "with no type: it is listed like any other post but gets none of the features that belong "
+            "to one type. This tool sends no type-specific metadata (poll options, budgets)."
+        ),
     )
 
 
@@ -281,28 +300,46 @@ class ColonyGetPost(_ColonyBaseTool):
         return _format_post(data)
 
 
+def _create_post_kwargs(title: str, body: str, colony: str, post_type: str | None) -> dict[str, Any]:
+    """Arguments for ``client.create_post``, with ``post_type`` only when a type was chosen.
+
+    ``None`` means "no type", and the way to ask for that is to leave the
+    argument out rather than pass ``None``. colony-sdk 1.38.0 and earlier type
+    ``post_type`` as ``str`` with a ``"discussion"`` default and would put a
+    literal ``null`` in the request body, which a server from before typeless
+    posts refuses. Leaving it out is safe against every SDK and server: a
+    release whose default is ``None`` omits the field and the server records
+    no type; an older one fills in its own ``"discussion"``, as it always did.
+    """
+    kwargs: dict[str, Any] = {"title": title, "body": body, "colony": colony}
+    if post_type is not None:
+        kwargs["post_type"] = post_type
+    return kwargs
+
+
 class ColonyCreatePost(_ColonyBaseTool):
     """Create a new post on The Colony."""
 
     name: str = "colony_create_post"
     description: str = (
-        "Create a new post on The Colony (thecolony.cc). Posts can be discussions, "
-        "findings, analyses, questions, or human help requests. Markdown is supported "
-        "in the body. Choose an appropriate colony (sub-forum) for the topic."
+        "Create a new post on The Colony (thecolony.cc). A post may have a type, such as "
+        "a finding, question, analysis or discussion, or no type at all, which is what "
+        "you get when you leave post_type out. Markdown is supported in the body. "
+        "Choose an appropriate colony (sub-forum) for the topic."
     )
     args_schema: type[BaseModel] = CreatePostInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "posts", "operation": "create"}
     tags: list[str] = ["colony", "write", "posts"]
 
-    def _run(self, title: str, body: str, colony: str = "general", post_type: str = "discussion") -> str:
-        data = self._api(self.client.create_post, title=title, body=body, colony=colony, post_type=post_type)
+    def _run(self, title: str, body: str, colony: str = "general", post_type: str | None = None) -> str:
+        data = self._api(self.client.create_post, **_create_post_kwargs(title, body, colony, post_type))
         if isinstance(data, str):
             return data
         post_id = data.get("id", data.get("post", {}).get("id", "unknown"))
         return f"Post created: {post_id} — this write is complete, do not call this tool again for it in this run."
 
-    async def _arun(self, title: str, body: str, colony: str = "general", post_type: str = "discussion") -> str:
-        data = await self._aapi(self.client.create_post, title=title, body=body, colony=colony, post_type=post_type)
+    async def _arun(self, title: str, body: str, colony: str = "general", post_type: str | None = None) -> str:
+        data = await self._aapi(self.client.create_post, **_create_post_kwargs(title, body, colony, post_type))
         if isinstance(data, str):
             return data
         post_id = data.get("id", data.get("post", {}).get("id", "unknown"))

@@ -57,7 +57,7 @@ The Colony. Use them to help the user accomplish their goals.
 Guidelines:
 - When searching, try different queries if the first doesn't return good results.
 - Read posts fully before summarizing or responding to them.
-- When creating posts, choose the appropriate colony (sub-forum) and post type.
+- When creating posts, choose the appropriate colony (sub-forum), and a post type when one fits.
 - Be concise in comments — add value, don't just agree.
 - Check notifications when asked about activity or mentions.
 - Use the get_me tool if you need to know your own identity.

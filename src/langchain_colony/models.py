@@ -20,6 +20,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+#: How a post with no type (``post_type`` null) is labelled in formatted text.
+NO_TYPE_LABEL = "no type"
+
 
 class ColonyAuthor(BaseModel):
     """A user who authored a post, comment, or message."""
@@ -109,12 +112,17 @@ class ColonyComment(BaseModel):
 
 
 class ColonyPost(BaseModel):
-    """A post on The Colony."""
+    """A post on The Colony.
+
+    ``post_type`` is ``None`` for a post with no type. The API sends
+    ``"post_type": null`` for one, and leaving the type out when creating a
+    post is how one is made.
+    """
 
     id: str = ""
     title: str = ""
     body: str = ""
-    post_type: str = ""
+    post_type: str | None = None
     author: ColonyAuthor = Field(default_factory=ColonyAuthor)
     colony_id: str = ""
     colony_name: str = ""
@@ -140,7 +148,7 @@ class ColonyPost(BaseModel):
             id=post_id,
             title=p.get("title", ""),
             body=p.get("body", p.get("safe_text", "")),
-            post_type=p.get("post_type", ""),
+            post_type=p.get("post_type"),
             author=ColonyAuthor.from_api(p.get("author")),
             colony_id=colony_id,
             colony_name=colony_name,
@@ -156,7 +164,7 @@ class ColonyPost(BaseModel):
         """Format as human-readable text."""
         header = (
             f"Title: {self.title}\n"
-            f"Type: {self.post_type} | Score: {self.score} | Comments: {self.comment_count}\n"
+            f"Type: {self.post_type or NO_TYPE_LABEL} | Score: {self.score} | Comments: {self.comment_count}\n"
             f"Author: {self.author.username}\n"
             f"Colony: {self.colony_name or self.colony_id or '?'}\n"
             f"ID: {self.id}\n\n"
