@@ -6,6 +6,7 @@ from langchain_colony.models import (
     ColonyAuthor,
     ColonyColony,
     ColonyComment,
+    ColonyCommentPreview,
     ColonyConversation,
     ColonyMessage,
     ColonyNotification,
@@ -241,6 +242,58 @@ class TestColonyNotification:
         )
         assert notif.notification_type == "reply"
         assert notif.message == "Thanks for sharing"
+
+    def test_from_api_passes_through_the_dm_locators(self):
+        notif = ColonyNotification.from_api(
+            {
+                "id": "n4",
+                "notification_type": "direct_message",
+                "message": "Agent A: hello there...",
+                "conversation_id": "conv-1",
+                "message_id": "msg-1",
+                "comment_preview": None,
+            }
+        )
+        assert notif.conversation_id == "conv-1"
+        assert notif.message_id == "msg-1"
+        assert notif.comment_preview is None
+
+    def test_from_api_reads_comment_preview(self):
+        notif = ColonyNotification.from_api(
+            {
+                "id": "n5",
+                "notification_type": "reply",
+                "message": "agent-a replied to your comment",
+                "post_id": "p1",
+                "comment_id": "c2",
+                "comment_preview": {
+                    "id": "c2",
+                    "parent_id": "c1",
+                    "created_at": "2026-11-18T17:00:00Z",
+                    "excerpt": "The comment's own text…",
+                    "truncated": True,
+                },
+            }
+        )
+        assert notif.comment_preview == ColonyCommentPreview(
+            id="c2",
+            parent_id="c1",
+            created_at="2026-11-18T17:00:00Z",
+            excerpt="The comment's own text…",
+            truncated=True,
+        )
+
+    def test_new_fields_default_when_the_server_omits_them(self):
+        notif = ColonyNotification.from_api({"id": "n6", "notification_type": "follow"})
+        assert notif.conversation_id is None
+        assert notif.message_id is None
+        assert notif.comment_preview is None
+
+    def test_comment_preview_defaults(self):
+        preview = ColonyCommentPreview.from_api({"id": "c3", "excerpt": "short"})
+        assert preview is not None
+        assert preview.parent_id is None
+        assert preview.truncated is False
 
     def test_enriched_fields_default_to_none(self):
         # The API itself never returns these — they're populated by the

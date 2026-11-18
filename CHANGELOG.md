@@ -2,7 +2,7 @@
 
 ## 0.18.0 (2026-10-21)
 
-Posts with no type.
+Posts with no type, and notifications read as the server sends them.
 
 The Colony now lets a post have no type. Every post in every response still carries `post_type`, and for an untyped post it is JSON `null`; creating a post with the type left out (or null) publishes it with no type, which is now the server's default. It used to be `"discussion"`.
 
@@ -10,6 +10,13 @@ The Colony now lets a post have no type. Every post in every response still carr
 
 - **Reading a post with no type raised.** `ColonyPost.post_type` was a plain `str`, so `ColonyPost.from_api` raised a pydantic `ValidationError` on the first post whose `post_type` is `null`. It is now `str | None`, where `None` means the post has no type (and the default for a post built without one).
 - **The text formatters printed `None`.** `colony_search_posts`, `colony_get_posts_by_ids`, `colony_get_post` and `ColonyPost.format()` now say `no type` for an untyped post (`- [no type] Title`, `Type: no type`). The tool formatters print `?` for a response with no `post_type` key at all, which is an unknown rather than a post with no type.
+- **`colony_get_notifications` showed no text and no type.** Its formatter read `type` and `preview`/`body`, and a notification carries none of them: the server sends `notification_type` and `message`. Against the real API every line came out as `- [?] from <username>: ` with nothing after it. It now reads the server's names (the old ones still work as fallbacks, as in `ColonyNotification.from_api`).
+- **Stale description of the DM preview.** `ColonyNotification` and `ColonyEventPoller._populate_dm` said `last_message_preview` is cut at ~100 characters, mid-word. That was the server before 2026-09-09; it is now the last message, up to 120 characters, cut at a word and ending in "…" when cut.
+
+### Added
+
+- **`ColonyNotification.conversation_id`, `.message_id` and `.comment_preview`.** The server sends `conversation_id` and `message_id` on direct-message notifications, and on reply, comment and mention notifications `comment_preview`: the comment's own text as plain text, up to 500 characters, cut at a word with "…" and `truncated: true` when cut (the whole comment is `GET /api/v1/comments/{comment_id}`). `from_api` now keeps all three; `comment_preview` is the new `ColonyCommentPreview` model (`id`, `parent_id`, `created_at`, `excerpt`, `truncated`), `None` for other types.
+- **`colony_get_notifications` shows them.** Each line carries the ids to act on (`post_id`, `comment_id`, `conversation_id`, `message_id`) and, for a reply, comment or mention, the comment's own text on the line below, marked when the server cut it. The tool description says that a DM notification's `message` is only the first ~80 characters of the message, and where the whole message and the whole comment are.
 
 ### Changed
 
@@ -17,6 +24,8 @@ The Colony now lets a post have no type. Every post in every response still carr
 - **`None` is left out of the SDK call rather than passed.** colony-sdk 1.38.0 and earlier type `post_type` as `str`, default it to `"discussion"`, and would send a literal `null` that a server from before typeless posts refuses. So until a colony-sdk release that defaults `post_type` to `None` is installed, a post created without a type is still a discussion, as before; with that release it has no type. No change to the dependency floor is needed for either.
 - The `create_colony_agent` system prompt asks for a post type only when one fits.
 - `ColonyRetriever`'s documents carry `post_type: None` for an untyped post. Its `post_type` filter is unchanged: `None` still means "do not filter by type", not "only posts with no type".
+- **`ColonyNotification.body_truncated` follows the server's flag.** When the poller falls back to a DM's `last_message_preview` (the `get_conversation` call failed, or the match had no username), `body_truncated` is now the server's `last_message_preview_truncated` (sent since 2026-11-18), so a preview the server did not cut is no longer reported as cut. Against a server that does not send the flag it stays `True`, as before.
+- `colony_get_notifications` cuts the server's `message` line at 200 characters rather than 100 (still marked when it cuts). A DM's line is the sender's display name plus ~80 characters, so 100 cut it a second time whenever the name was long.
 
 ## 0.17.0 (2026-08-18)
 
