@@ -327,8 +327,8 @@ class ColonyEventPoller:
     def _apply_dm_body(notif: ColonyNotification, conversation: dict, thread: Any) -> None:
         """Set ``notif.body`` to the newest inbound message in ``thread``.
 
-        Falls back to the conversation's ``last_message_preview`` — flagging
-        ``body_truncated`` — when the thread yields nothing usable.
+        Falls back to the conversation's ``last_message_preview`` when the
+        thread yields nothing usable; see :meth:`_apply_preview_body`.
         """
         messages = as_list(thread, "get_conversation")
         # Prefer messages FROM the other party: a DM notification is about what
@@ -351,36 +351,54 @@ class ColonyEventPoller:
             notif.body = body
             notif.body_truncated = False
             return
+        ColonyEventPoller._apply_preview_body(notif, conversation)
+
+    @staticmethod
+    def _apply_preview_body(notif: ColonyNotification, conversation: dict) -> None:
+        """Fall back to the conversation's ``last_message_preview`` as the body.
+
+        ``body_truncated`` follows the server's
+        ``last_message_preview_truncated`` (sent since 2026-11-18): a preview
+        the server did not cut is the whole last message. When the key is
+        absent (an older server) the cut cannot be ruled out, so a preview is
+        flagged as truncated, as before.
+        """
         notif.body = conversation.get("last_message_preview") or None
-        notif.body_truncated = notif.body is not None
+        if notif.body is None:
+            notif.body_truncated = False
+            return
+        cut = conversation.get("last_message_preview_truncated")
+        notif.body_truncated = True if cut is None else bool(cut)
 
     def _populate_dm(self, notif: ColonyNotification, conversations: Any) -> None:
         """Populate a DM notification with the sender and the FULL message.
 
-        ``list_conversations`` carries only ``last_message_preview``, which the
-        server truncates. Using it as the body clipped inbound DMs at ~100
-        characters, mid-word, and reported nothing — the reply was written from
-        a fraction of what the sender wrote. The preview is a summary of the
-        message, not the message, and its name says so.
+        ``list_conversations`` carries only ``last_message_preview``: the last
+        message, up to 120 characters, cut at a word and ending in "…" when
+        cut. Before 2026-09-09 the server cut it at 100 characters mid-word and
+        marked nothing, and using it as the body clipped inbound DMs with
+        nothing reporting it — the reply was written from a fraction of what
+        the sender wrote. The preview is a summary of the message, not the
+        message, and its name says so.
 
         So the body costs a second call. If that call fails we keep the preview
-        rather than dropping the notification, but mark ``body_truncated`` so a
-        handler can tell a short message from a clipped one.
+        rather than dropping the notification, and set ``body_truncated`` from
+        the server's ``last_message_preview_truncated`` (or to ``True`` when
+        the server does not send it) so a handler can tell a short message
+        from a clipped one.
         """
         best = self._match_dm(notif, conversations)
         if best is None:
             return
         username = notif.sender_username
         if not username:
-            notif.body = best.get("last_message_preview") or None
-            notif.body_truncated = notif.body is not None
+            self._apply_preview_body(notif, best)
             return
         try:
             thread = self.client.get_conversation(username)
         except (ColonyAPIError, Exception) as exc:
             logger.warning("Failed to fetch full DM body from %s: %s", username, exc)
-            notif.body = best.get("last_message_preview") or None
-            notif.body_truncated = notif.body is not None
+            self._apply_preview_body(notif, best)
             return
         self._apply_dm_body(notif, best, thread)
 
@@ -391,15 +409,13 @@ class ColonyEventPoller:
             return
         username = notif.sender_username
         if not username:
-            notif.body = best.get("last_message_preview") or None
-            notif.body_truncated = notif.body is not None
+            self._apply_preview_body(notif, best)
             return
         try:
             thread = await self._call_async(self.client.get_conversation, username)
         except (ColonyAPIError, Exception) as exc:
             logger.warning("Failed to fetch full DM body from %s: %s", username, exc)
-            notif.body = best.get("last_message_preview") or None
-            notif.body_truncated = notif.body is not None
+            self._apply_preview_body(notif, best)
             return
         self._apply_dm_body(notif, best, thread)
 
