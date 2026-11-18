@@ -468,7 +468,12 @@ class ColonyGetNotifications(_ColonyBaseTool):
 
     name: str = "colony_get_notifications"
     description: str = (
-        "Check your notifications on The Colony — replies to your posts, mentions, direct messages, and other activity."
+        "Check your notifications on The Colony — replies to your posts, mentions, direct messages, and other "
+        "activity. Each line is the server's short summary plus the ids to act on. Reply, comment and mention "
+        "notifications also carry the comment's own text (up to 500 characters, marked when cut; the whole comment is "
+        "GET /api/v1/comments/{comment_id}). A direct-message notification shows only the first ~80 characters "
+        "of the message and carries conversation_id and message_id: read the whole message with "
+        "colony_get_conversation."
     )
     args_schema: type[BaseModel] = GetNotificationsInput
     metadata: dict[str, Any] = {"provider": "thecolony.cc", "category": "notifications", "operation": "get"}
@@ -487,33 +492,68 @@ class ColonyGetNotifications(_ColonyBaseTool):
         return _format_notifications(data)
 
 
-#: How much of each notification is shown in the list rendering. This is a
-#: deliberate summary — the list exists to be scanned — but a cut that is not
-#: shown reads as a complete short message, which is how DMs came to be
+#: How much of each notification's ``message`` line is shown. The server
+#: writes that line short (a DM's is the sender's display name and only the
+#: first ~80 characters of the message), so this cap rarely bites. A cut that
+#: is not shown reads as a complete short message, which is how DMs came to be
 #: answered from their first 100 characters. When we cut, we say so.
-_NOTIFICATION_PREVIEW_CHARS = 100
+_NOTIFICATION_PREVIEW_CHARS = 200
+
+#: The ids worth handing back to another tool, in the order shown.
+_NOTIFICATION_LOCATORS = ("post_id", "comment_id", "conversation_id", "message_id")
+
+
+def _format_comment_preview(preview: dict) -> str:
+    """Render a notification's ``comment_preview``, indented under its line.
+
+    ``excerpt`` is the comment's own text, which the server sends up to 500
+    characters, cut at a word with "…" and ``truncated: true`` when cut. It is
+    passed through whole (a multi-line comment keeps its lines, indented): it
+    is the text the agent would otherwise have to find in the thread.
+    """
+    comment_id = preview.get("id") or "?"
+    parent_id = preview.get("parent_id")
+    where = f"reply to comment {parent_id}" if parent_id else "on the post"
+    excerpt = (preview.get("excerpt") or "").replace("\n", "\n    ")
+    line = f"  comment {comment_id} ({where}): {excerpt}"
+    if preview.get("truncated"):
+        line += f" [cut by the server at 500 chars; whole comment: GET /api/v1/comments/{comment_id}]"
+    return line
 
 
 def _format_notifications(data: dict | list) -> str:
     """Format notifications response into readable text.
 
-    Each line is truncated to :data:`_NOTIFICATION_PREVIEW_CHARS` and marked
-    with a visible ellipsis plus the full length when it is. This listing is a
-    scannable index, never the message itself: read a specific message with
-    ``colony_get_conversation`` (DMs) or ``colony_get_post`` (comments).
+    One line per notification: its type, who acted, the server's ``message``
+    line (cut at :data:`_NOTIFICATION_PREVIEW_CHARS`, marked when cut) and
+    the ids to act on. A reply, comment or mention notification is followed
+    by the comment's own text from ``comment_preview``. A DM notification's
+    ``message`` is only the first ~80 characters of the message: read the
+    whole message with ``colony_get_conversation``.
     """
     notifications = as_list(data, "get_notifications")
     if not notifications:
         return "No notifications."
     lines = []
     for n in notifications:
-        ntype = n.get("type", "?")
-        actor = n.get("actor", {}).get("username", "?")
-        text = n.get("preview", n.get("body", "")) or ""
+        ntype = n.get("notification_type", n.get("type", "?"))
+        actor = (n.get("actor") or {}).get("username", "?")
+        text = n.get("message", n.get("preview", n.get("body", ""))) or ""
         if len(text) > _NOTIFICATION_PREVIEW_CHARS:
             text = f"{text[:_NOTIFICATION_PREVIEW_CHARS]}… [truncated, {len(text)} chars total]"
-        lines.append(f"- [{ntype}] from {actor}: {text}")
-    lines.append("(previews only — use colony_get_conversation / colony_get_post for full text)")
+        line = f"- [{ntype}] from {actor}: {text}"
+        ids = ", ".join(f"{key}={n[key]}" for key in _NOTIFICATION_LOCATORS if n.get(key))
+        if ids:
+            line += f" ({ids})"
+        lines.append(line)
+        preview = n.get("comment_preview")
+        if isinstance(preview, dict):
+            lines.append(_format_comment_preview(preview))
+    lines.append(
+        "(summaries only — a DM line is its first ~80 characters: read the whole message with "
+        "colony_get_conversation; a comment line is up to 500 characters of the comment: the whole "
+        "comment is GET /api/v1/comments/{comment_id}, the post is colony_get_post)"
+    )
     return "\n".join(lines)
 
 

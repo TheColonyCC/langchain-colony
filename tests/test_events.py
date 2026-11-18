@@ -250,9 +250,11 @@ def _dm_notification(notif_id: str = "n1", created_at: str = _BASE_TS) -> dict:
     return {
         "id": notif_id,
         "notification_type": "direct_message",
-        "message": "ColonistOne sent you a message",
+        "message": "ColonistOne: Hi there",
         "post_id": None,
         "comment_id": None,
+        "conversation_id": "conv-1",
+        "message_id": "m-1",
         "is_read": False,
         "created_at": created_at,
     }
@@ -266,8 +268,11 @@ def _conversation(
     preview: str = "Hi there",
     unread: int = 1,
     user_type: str = "agent",
+    preview_truncated: bool | None = None,
 ) -> dict:
-    return {
+    """A `list_conversations` item. ``preview_truncated=None`` leaves out
+    ``last_message_preview_truncated``, as a server before 2026-11-18 did."""
+    conv = {
         "id": "conv-1",
         "other_user": {
             "id": user_id,
@@ -280,11 +285,14 @@ def _conversation(
         "last_message_preview": preview,
         "is_archived": False,
     }
+    if preview_truncated is not None:
+        conv["last_message_preview_truncated"] = preview_truncated
+    return conv
 
 
-#: A message long enough that the server's ~100-char preview cuts it. The
+#: A message long enough that the server's 120-character preview cuts it. The
 #: original bug read `last_message_preview` as the body, so a DM this long
-#: arrived clipped mid-word with nothing reporting the cut.
+#: arrived clipped (then mid-word, at 100) with nothing reporting the cut.
 _LONG_BODY = (
     "Field note you'll want as the operator of the fleet: two of your agents clip inbound "
     "DMs at exactly one hundred characters, identical signature, and we misread it as our "
@@ -431,6 +439,48 @@ class TestEnrichDirectMessage:
         # The whole point of the flag: a handler can tell a genuinely short
         # message from one we only managed to fetch part of.
         assert n.body_truncated is True
+
+    def test_dm_preview_fallback_follows_the_servers_flag_when_uncut(self):
+        """The server says when it cut the preview (2026-11-18). A preview it
+        did not cut is the whole last message, so it is not flagged."""
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {
+            "items": [_conversation(preview="Hi there", preview_truncated=False)]
+        }
+        poller.client.get_conversation.side_effect = RuntimeError("boom")
+        n = poller.poll_once()[0]
+        assert n.body == "Hi there"
+        assert n.body_truncated is False
+
+    def test_dm_preview_fallback_follows_the_servers_flag_when_cut(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {
+            "items": [_conversation(preview="A long message, cut at a word…", preview_truncated=True)]
+        }
+        poller.client.get_conversation.side_effect = RuntimeError("boom")
+        n = poller.poll_once()[0]
+        assert n.body == "A long message, cut at a word…"
+        assert n.body_truncated is True
+
+    def test_dm_with_no_preview_is_not_flagged(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation(preview="")]}
+        poller.client.get_conversation.side_effect = RuntimeError("boom")
+        n = poller.poll_once()[0]
+        assert n.body is None
+        assert n.body_truncated is False
+
+    def test_dm_notification_keeps_its_conversation_and_message_ids(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        poller.client.list_conversations.return_value = {"items": [_conversation()]}
+        poller.client.get_conversation.return_value = _thread()
+        n = poller.poll_once()[0]
+        assert n.conversation_id == "conv-1"
+        assert n.message_id == "m-1"
 
     def test_dm_falls_back_when_thread_has_no_usable_messages(self):
         poller = _make_poller()
@@ -743,6 +793,16 @@ class TestEnrichAsync:
         assert results[0].body == "clipped…"
         assert results[0].body_truncated is True
         poller.client.get_conversation.assert_not_called()
+
+    def test_async_dm_preview_fallback_follows_the_servers_flag(self):
+        poller = _make_poller()
+        poller.client.get_notifications.return_value = [_dm_notification()]
+        conv = _conversation(preview="Hi there", preview_truncated=False)
+        conv["other_user"] = {"id": "u-cone"}  # no username
+        poller.client.list_conversations.return_value = {"items": [conv]}
+        results = asyncio.run(poller.poll_once_async())
+        assert results[0].body == "Hi there"
+        assert results[0].body_truncated is False
 
     def test_async_dm_falls_back_to_preview_and_flags_it(self):
         poller = _make_poller()

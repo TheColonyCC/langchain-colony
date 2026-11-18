@@ -442,6 +442,26 @@ class TestFormatPost:
         assert "?" in result  # fallback for missing title, author, etc.
 
 
+def _notif(**fields):
+    """A notification shaped as ``GET /api/v1/notifications`` sends it."""
+    base = {
+        "id": "n1",
+        "notification_type": "reply",
+        "message": "agent-a replied to your comment",
+        "actor": {"id": "u-a", "username": "agent-a", "display_name": "Agent A", "user_type": "agent"},
+        "post_id": None,
+        "comment_id": None,
+        "conversation_id": None,
+        "message_id": None,
+        "wiki_page_id": None,
+        "comment_preview": None,
+        "is_read": False,
+        "created_at": "2026-11-18T17:00:00Z",
+    }
+    base.update(fields)
+    return base
+
+
 class TestFormatNotifications:
     def test_empty(self):
         assert _format_notifications({"notifications": []}) == "No notifications."
@@ -449,49 +469,153 @@ class TestFormatNotifications:
 
     def test_with_notifications(self):
         result = _format_notifications(
-            {
-                "notifications": [
-                    {"type": "reply", "actor": {"username": "agent-a"}, "preview": "Thanks for sharing"},
-                    {"type": "mention", "actor": {"username": "agent-b"}, "body": "Check out @you"},
-                ]
-            }
+            [
+                _notif(notification_type="reply", message="Thanks for sharing"),
+                _notif(
+                    notification_type="mention",
+                    message="agent-b mentioned you",
+                    actor={"username": "agent-b"},
+                ),
+            ]
         )
         assert "[reply]" in result
         assert "agent-a" in result
         assert "Thanks for sharing" in result
         assert "[mention]" in result
-        assert "Check out @you" in result
+        assert "agent-b mentioned you" in result
 
-    def test_long_preview_truncated_and_says_so(self):
-        result = _format_notifications(
-            {
-                "notifications": [
-                    {"type": "dm", "actor": {"username": "x"}, "preview": "A" * 200},
-                ]
-            }
-        )
+    def test_reads_the_field_names_the_server_sends(self):
+        """Regression: the formatter read ``type`` and ``preview``/``body``,
+        none of which a notification carries. Against the real server every
+        line came out as ``- [?] from agent-a: `` with no text."""
+        line = _format_notifications([_notif(notification_type="direct_message", message="Agent A: hi")])
+        line = line.splitlines()[0]
+        assert line.startswith("- [direct_message] from agent-a: Agent A: hi")
+
+    def test_legacy_keys_still_read(self):
+        """Mirrors ``ColonyNotification.from_api``: ``type`` and ``preview``
+        stand in when the server's names are absent."""
+        result = _format_notifications([{"type": "reply", "actor": {"username": "x"}, "preview": "old shape"}])
+        assert result.splitlines()[0] == "- [reply] from x: old shape"
+
+    def test_long_message_truncated_and_says_so(self):
+        result = _format_notifications([_notif(message="A" * 300)])
         line = result.splitlines()[0]
         body = line.split(": ", 1)[1]
-        # Cut at 100 characters of actual content...
-        assert body.startswith("A" * 100)
-        assert "A" * 101 not in body
+        # Cut at 200 characters of actual content...
+        assert body.startswith("A" * 200)
+        assert "A" * 201 not in body
         # ...but the cut is VISIBLE. A silent truncation reads as a complete
         # short message, which is how DMs came to be answered from their first
         # 100 characters.
         assert "…" in body
-        assert "200 chars total" in body
+        assert "300 chars total" in body
 
-    def test_short_preview_is_not_marked_truncated(self):
+    def test_a_dm_line_is_not_cut_a_second_time(self):
+        """The server's DM line is a display name plus ~80 characters; a
+        100-character cap cut it again whenever the name was long."""
+        message = "A Rather Long Display Name: " + "word " * 16 + "..."
+        assert 100 < len(message) <= 200
+        line = _format_notifications([_notif(notification_type="direct_message", message=message)]).splitlines()[0]
+        assert message in line
+        assert "truncated" not in line
+
+    def test_short_message_is_not_marked_truncated(self):
         """Must-allow control: the marker has to be absent when nothing is cut,
         or it says nothing when present."""
-        result = _format_notifications({"notifications": [{"type": "dm", "actor": {"username": "x"}, "preview": "hi"}]})
+        result = _format_notifications([_notif(message="hi")])
         line = result.splitlines()[0]
         assert line.endswith(": hi")
         assert "truncated" not in line
 
     def test_listing_points_at_the_full_text_tools(self):
-        result = _format_notifications({"notifications": [{"type": "dm", "actor": {"username": "x"}, "preview": "hi"}]})
+        result = _format_notifications([_notif(message="hi")])
         assert "colony_get_conversation" in result
+        assert "GET /api/v1/comments/{comment_id}" in result
+
+    def test_dm_notification_carries_conversation_and_message_ids(self):
+        result = _format_notifications(
+            [
+                _notif(
+                    notification_type="direct_message",
+                    message="Agent A: hello there...",
+                    conversation_id="conv-1",
+                    message_id="msg-1",
+                )
+            ]
+        )
+        line = result.splitlines()[0]
+        assert "conversation_id=conv-1" in line
+        assert "message_id=msg-1" in line
+
+    def test_ids_are_left_out_when_null(self):
+        line = _format_notifications([_notif(message="hi")]).splitlines()[0]
+        assert "_id=" not in line
+
+    def test_reply_shows_the_comments_own_text(self):
+        result = _format_notifications(
+            [
+                _notif(
+                    post_id="p1",
+                    comment_id="c2",
+                    comment_preview={
+                        "id": "c2",
+                        "parent_id": "c1",
+                        "created_at": "2026-11-18T17:00:00Z",
+                        "excerpt": "I disagree with the second point, because the data says otherwise.",
+                        "truncated": False,
+                    },
+                )
+            ]
+        )
+        first, second = result.splitlines()[:2]
+        assert "post_id=p1, comment_id=c2" in first
+        assert second == (
+            "  comment c2 (reply to comment c1): I disagree with the second point, because the data says otherwise."
+        )
+
+    def test_a_cut_comment_says_so_and_names_the_whole_comment(self):
+        excerpt = "word " * 99 + "word…"
+        result = _format_notifications(
+            [
+                _notif(
+                    notification_type="mention",
+                    comment_id="c9",
+                    comment_preview={
+                        "id": "c9",
+                        "parent_id": None,
+                        "created_at": "2026-11-18T17:00:00Z",
+                        "excerpt": excerpt,
+                        "truncated": True,
+                    },
+                )
+            ]
+        )
+        line = result.splitlines()[1]
+        # Passed through whole: no cut of ours on top of the server's.
+        assert excerpt in line
+        assert "(on the post)" in line
+        assert "cut by the server at 500 chars" in line
+        assert "GET /api/v1/comments/c9" in line
+
+    def test_an_uncut_comment_is_not_marked(self):
+        """Must-allow control for the marker above."""
+        result = _format_notifications(
+            [_notif(comment_preview={"id": "c2", "parent_id": None, "excerpt": "short", "truncated": False})]
+        )
+        assert "cut by the server" not in result
+
+    def test_a_multi_line_comment_stays_under_its_notification(self):
+        result = _format_notifications(
+            [_notif(comment_preview={"id": "c2", "parent_id": None, "excerpt": "one\ntwo", "truncated": False})]
+        )
+        lines = result.splitlines()
+        assert lines[1].endswith(": one")
+        assert lines[2] == "    two"
+
+    def test_no_comment_line_without_a_comment_preview(self):
+        result = _format_notifications([_notif(notification_type="follow", message="agent-a followed you")])
+        assert "  comment" not in result
 
 
 # ── Tool invocations ────────────────────────────────────────────────
@@ -739,12 +863,16 @@ class TestGetNotifications:
     def test_with_notifications(self):
         toolkit, mock = _toolkit_with(
             {
-                "get_notifications": {
-                    "notifications": [
-                        {"type": "reply", "actor": {"username": "responder"}, "preview": "Good point"},
-                        {"type": "dm", "actor": {"username": "friend"}, "body": "Hey there"},
-                    ]
-                }
+                "get_notifications": [
+                    _notif(actor={"username": "responder"}, message="Good point"),
+                    _notif(
+                        notification_type="direct_message",
+                        actor={"username": "friend"},
+                        message="Friend: Hey there",
+                        conversation_id="conv-1",
+                        message_id="msg-1",
+                    ),
+                ]
             }
         )
         tools = {t.name: t for t in toolkit.get_tools()}
@@ -752,6 +880,7 @@ class TestGetNotifications:
         assert "responder" in result
         assert "Good point" in result
         assert "Hey there" in result
+        assert "conversation_id=conv-1, message_id=msg-1" in result
         # Toolkit defaults to limit=50; check method + the params we care about.
         method, kwargs = mock.calls[-1]
         assert method == "get_notifications"

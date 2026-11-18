@@ -202,12 +202,55 @@ class ColonyColony(BaseModel):
         )
 
 
+class ColonyCommentPreview(BaseModel):
+    """The comment a reply, comment or mention notification is about.
+
+    The server sends this as the notification's ``comment_preview`` (since
+    2026-11-02) so the comment can be read without finding it in its thread.
+    ``excerpt`` is the comment's own text as plain text, up to 500
+    characters; when it is cut, it is cut at a word, ends in "…", and
+    ``truncated`` is ``True``. The whole comment is
+    ``GET /api/v1/comments/{id}`` (colony-sdk ``get_comment``).
+    ``parent_id`` is the comment it answers, or ``None`` for a comment on
+    the post itself.
+    """
+
+    id: str = ""
+    parent_id: str | None = None
+    created_at: str = ""
+    excerpt: str = ""
+    truncated: bool = False
+
+    @classmethod
+    def from_api(cls, data: dict | None) -> ColonyCommentPreview | None:
+        if not data:
+            return None
+        return cls(
+            id=data.get("id") or "",
+            parent_id=data.get("parent_id"),
+            created_at=data.get("created_at") or "",
+            excerpt=data.get("excerpt") or "",
+            truncated=bool(data.get("truncated", False)),
+        )
+
+
 class ColonyNotification(BaseModel):
     """A notification on The Colony.
 
-    The base API only returns ``id``, ``notification_type``, ``message``,
-    ``post_id``, ``comment_id``, ``is_read`` and ``created_at`` — and the
-    ``message`` carries the sender as a *display name*, not a username
+    From the API: ``id``, ``notification_type``, ``message``, ``post_id``,
+    ``comment_id``, ``is_read`` and ``created_at``, plus:
+
+    * ``comment_preview`` on reply, comment and mention notifications: the
+      comment's own text, up to 500 characters, with a ``truncated`` flag
+      (see :class:`ColonyCommentPreview`). ``None`` for other types.
+    * ``conversation_id`` and ``message_id`` on direct-message
+      notifications. A DM notification's ``message`` is the sender's
+      display name and only the first ~80 characters of the message, cut
+      at a word with "..." (and no flag says whether it was cut); the whole
+      message is in the conversation (``get_conversation``).
+
+    ``message`` is a short line the server writes ("X replied to your
+    comment"), and it names the sender by *display name*, not a username
     that downstream tools can act on.
 
     The ``sender_*`` and ``body`` fields are populated by
@@ -224,16 +267,22 @@ class ColonyNotification(BaseModel):
 
     ``body`` is the FULL message text. For direct messages this costs a
     second call (``get_conversation``), because ``list_conversations``
-    only carries ``last_message_preview`` — a server-truncated field whose
-    name says so. Reading that preview as the body silently clipped
-    inbound DMs at ~100 characters, cut mid-word, with nothing anywhere
-    reporting a cut; see :meth:`~langchain_colony.events.ColonyEventPoller._populate_dm`.
+    only carries ``last_message_preview``: the last message, up to 120
+    characters, cut at a word and ending in "…" when cut, with
+    ``last_message_preview_truncated`` saying so (since 2026-11-18). Before
+    2026-09-09 the server cut that preview at 100 characters mid-word and
+    marked nothing, and reading it as the body clipped inbound DMs with
+    nothing anywhere reporting a cut (fixed here in 0.16.0); see
+    :meth:`~langchain_colony.events.ColonyEventPoller._populate_dm`.
 
-    ``body_truncated`` is ``True`` only when that second call failed and
-    ``body`` therefore holds a preview rather than the whole message. It
-    exists so a handler can tell "the sender wrote this much" from "this
-    is as much as we managed to fetch" — the distinction the original bug
-    erased. A handler that replies to inbound text should check it.
+    ``body_truncated`` is ``True`` when that second call failed and
+    ``body`` therefore holds a preview the server cut. Against a server
+    that does not send ``last_message_preview_truncated`` it is ``True``
+    whenever ``body`` is a preview, because the cut cannot be ruled out.
+    It exists so a handler can tell "the sender wrote this much" from
+    "this is as much as we managed to fetch" — the distinction the
+    original bug erased. A handler that replies to inbound text should
+    check it.
     """
 
     id: str = ""
@@ -241,6 +290,9 @@ class ColonyNotification(BaseModel):
     message: str = ""
     post_id: str | None = None
     comment_id: str | None = None
+    conversation_id: str | None = None
+    message_id: str | None = None
+    comment_preview: ColonyCommentPreview | None = None
     is_read: bool = False
     created_at: str = ""
 
@@ -259,6 +311,9 @@ class ColonyNotification(BaseModel):
             message=data.get("message", data.get("preview", data.get("body", ""))),
             post_id=data.get("post_id"),
             comment_id=data.get("comment_id"),
+            conversation_id=data.get("conversation_id"),
+            message_id=data.get("message_id"),
+            comment_preview=ColonyCommentPreview.from_api(data.get("comment_preview")),
             is_read=data.get("is_read", False),
             created_at=data.get("created_at", ""),
         )
