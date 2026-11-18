@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.18.0 (2026-10-21)
+## 0.18.0 (2026-11-18)
 
 Posts with no type, and notifications read as the server sends them.
 
